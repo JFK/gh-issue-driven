@@ -91,10 +91,13 @@ Construct one shared block all four reviewers will receive:
 <contents of /tmp/gh-issue-driven.diff>
 
 ## Your task
-Review this change. End with exactly one line:
+Review this change. End your response with a final `## Verdict:` line (if multiple
+`## Verdict:` lines appear earlier in the response, the LAST one wins). The token must be one of:
 "## Verdict: green" | "## Verdict: yellow" | "## Verdict: red"
-For /audit specifically, end with:
+For /audit specifically, the token must be one of:
 "## Verdict: pass" | "## Verdict: fail"
+You can naturally revise mid-analysis ("at first I thought yellow, but actually green") —
+the last `## Verdict:` line is what counts.
 ```
 
 ### 6. Gate 2 — parallel reviewer battery
@@ -115,9 +118,17 @@ If any of these skills is not installed, mark its slot `unknown`, print a warnin
 
 Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
 
-1. **Structured verdict line**: a line matching `^##\s*Verdict:\s*(pass|fail)\b` (case-insensitive). If found, use it.
-2. **Skill error signal**: if the Skill tool returned an error/non-zero indication for `/audit`, treat as `fail`.
-3. **Heuristic fallback**: tokens `BLOCKER`, `failed conformance`, `MUST FIX` in the markdown → `fail`. Otherwise `pass`.
+1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching
+   `^\s*##\s*Verdict:\s*(pass|fail)\b` (case-insensitive). If one or more match, take the **LAST**
+   occurrence (last-wins), lowercase, and use it. Trailing punctuation is tolerated; case is
+   normalized via `.lower()`.
+2. **Skill error signal**: if the Skill tool returned an error/non-zero indication for `/audit`
+   AND no structured verdict line was found, treat as `fail`. (A clean structured `pass` line is
+   never overridden by a downstream error after the fact.)
+3. **Heuristic fallback** — only runs when no structured line and no skill error. Emit a single
+   warn-level log line `verdict_parser=heuristic gate=audit reason=no_structured_line` so the
+   soft-deprecation can be tracked. Tokens `BLOCKER`, `failed conformance`, `MUST FIX` in the
+   markdown → `fail`. Otherwise `pass`.
 
 **If `AUDIT_VERDICT == fail`**: abort PR creation entirely. Even with `FORCE`. Save the audit output to the gate2 markdown file. Persist `gate2.audit=fail, gate2.verdict=red` in the state. Print:
 
@@ -133,13 +144,20 @@ Then exit. Do not push, do not create the PR.
 
 ### 8. Advisor aggregation
 
-For each of `CSO_OUT`, `QA_OUT`, `CTO_OUT`, classify into `green | yellow | red` using this priority:
+For each of `CSO_OUT`, `QA_OUT`, `CTO_OUT`, classify into `green | yellow | red` using this contract:
 
-1. Structured `^##\s*Verdict:\s*(green|yellow|red)\b` line if present.
-2. Heuristic:
-   - **red**: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, `Critical:` 3+ times, `## Verdict: red` markers.
+1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching
+   `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive). If one or more match, take the
+   **LAST** occurrence (last-wins), lowercase, and use it.
+2. **Heuristic fallback** — only runs when no structured line was found. Emit one warn-level log
+   line per advisor: `verdict_parser=heuristic gate=gate2 advisor=<name> reason=no_structured_line`.
+   - **red**: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, `Critical:` 3+ times.
    - **yellow**: `WARN`, `consider`, `recommend`, `Warning:` 1–2 times.
    - **green**: none of the above.
+
+Note: gate2 advisors do **not** support a `decline` token — declination is a gate1-only routing
+concept. An advisor that cannot meaningfully assess should still emit `## Verdict: yellow` with a
+note in the body explaining the limitation, rather than declining.
 
 Compute `GATE2_VERDICT`:
 - any red → `red`
