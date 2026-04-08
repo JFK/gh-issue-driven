@@ -1,0 +1,47 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  json-and-frontmatter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq python3
+          python3 -m pip install --quiet pyyaml
+
+      - name: Validate plugin manifest JSON syntax
+        run: |
+          set -euo pipefail
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+            echo "Validating $f"
+            jq empty "$f"
+          done
+
+      - name: Verify plugin/marketplace version sync
+        run: |
+          set -euo pipefail
+          PV=$(jq -r '.version' .claude-plugin/plugin.json)
+          MV=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
+          echo "plugin.json version:        $PV"
+          echo "marketplace.json[0].version: $MV"
+          test "$PV" = "$MV"
+
+      - name: Verify plugin/marketplace name sync
+        run: |
+          set -euo pipefail
+          PN=$(jq -r '.name' .claude-plugin/plugin.json)
+          MN=$(jq -r '.plugins[0].name' .claude-plugin/marketplace.json)
+          echo "plugin.json name:        $PN"
+          echo "marketplace.json[0].name: $MN"
+          test "$PN" = "$MN"
+
+      - name: Verify command frontmatter parses and has required fields
+        run: python3 .github/workflows/check-frontmatter.py

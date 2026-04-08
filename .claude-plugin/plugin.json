@@ -1,0 +1,24 @@
+{
+  "name": "gh-issue-driven",
+  "version": "0.1.0",
+  "description": "Orchestrate a full GitHub-issue-driven dev workflow — design review (gate1), branch, implement, pre-PR review battery (gate2), PR creation, Copilot review loop, and Kagura Memory persistence — across two slash commands.",
+  "author": {
+    "name": "Fumikazu Kiyota",
+    "url": "https://github.com/JFK"
+  },
+  "repository": "https://github.com/JFK/gh-issue-driven",
+  "license": "MIT",
+  "keywords": [
+    "github",
+    "issues",
+    "pull-requests",
+    "workflow",
+    "code-review",
+    "copilot",
+    "kagura-memory",
+    "c-suite",
+    "phd-panel",
+    "developer-experience"
+  ],
+  "commands": ["./commands/"]
+}

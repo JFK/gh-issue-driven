@@ -1,0 +1,27 @@
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Python (used only by .github/workflows/check-frontmatter.py in CI)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Local plugin cache (should never be committed)
+.claude/cache/
+.claude/backups/
+
+# Local scratch files
+/tmp/
+*.tmp
+*.bak
+
+# Logs
+*.log
