@@ -166,11 +166,12 @@ Review this issue from a design-time perspective:
   free-form keywords (DECLINE, needs synthesis, escalate, etc.) anywhere in your
   reasoning to signal routing — only the structured `## Verdict:` line counts.
 
-End your response with exactly one line, the canonical verdict:
+End your response with exactly one final canonical verdict line:
 "## Verdict: green" | "## Verdict: yellow" | "## Verdict: red" | "## Verdict: decline"
 
 Where `decline` means: "this question needs multiple lenses — please escalate to /ceo".
-The last `## Verdict:` line in your response wins (you can revise mid-analysis).
+You may revise your assessment earlier in the response, but if you emit multiple
+`## Verdict:` lines, only the final one is authoritative and it must be the last line.
 ```
 
 ### 9. Gate 1 cascade — invoke `/ask` first
@@ -183,8 +184,8 @@ Capture the full skill output as `ASK_OUTPUT`.
 
 Scan `ASK_OUTPUT` for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b`
 (case-insensitive). If one or more match, take the **LAST** occurrence (last-wins) and lowercase
-the captured token. This is the same scan-and-take-last rule used in step 11 — decline is just
-a 5th valid token on the same line, not a separate channel.
+the captured token. This is the same scan-and-take-last rule used in step 11 — `decline` is an
+additional valid token on the same line for gate1, not a separate channel.
 
 Free-form mentions of `decline`, `needs synthesis`, `escalate`, etc. inside the analysis body
 are **not** decline signals — they are the reviewer's reasoning. Only the structured verdict
@@ -194,7 +195,14 @@ reflection `## Verdict: green`" correctly resolves to green and does NOT escalat
 
 - **If the last token is `decline`**: escalate.
 
-  > **Invoke the `/claude-c-suite:ceo` skill via the Skill tool**, passing the same gate1 prompt block plus a one-line note `(Escalated from /ask: <first 200 chars of ask output>)`. Wait for the full markdown response.
+  > **Invoke the `/claude-c-suite:ceo` skill via the Skill tool**, passing the same gate1 prompt block plus this two-line footer:
+  >
+  > ```
+  > (Escalated from /ask: <first 200 chars of ask output>)
+  > Note: as the escalation target, end your response with `## Verdict: green|yellow|red` only — `decline` is not valid for /ceo (you ARE the escalation target, there is no further escalation).
+  > ```
+  >
+  > Wait for the full markdown response. The `/ceo` response is then parsed by step 11, which only recognizes `green|yellow|red`; if `/ceo` ignores the constraint and emits `decline`, the structured path will not match and the heuristic fallback will run with a warn log — that signal is what we want to track.
 
   Use the `/ceo` output as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO="ceo"`.
 

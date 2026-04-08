@@ -47,7 +47,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 Runs **after** the issue is fetched and recall is done, **before** the branch is created. Strategy:
 
 1. Invoke `/claude-c-suite:ask` first — a single-lens auto-router. Cheap, fast, perfect for issues that need only one expert perspective.
-2. If the last `## Verdict:` line's token is `decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is treated as a 5th value of the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
+2. If the last `## Verdict:` line's token is `decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is an additional gate1-only token on the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
 3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
 4. **green** → continue. **yellow** → ask the user to confirm. **red** → abort unless `force`.
 
@@ -84,7 +84,7 @@ Rules:
 - **Case insensitive**: `Green` / `green` / `GREEN` all normalize to `green`.
 - **Trailing punctuation tolerated**: `## Verdict: green.` is accepted (`\b<token>\b` regex).
 - **Heuristic is fallback only**: if no structured line is present, a keyword heuristic runs and emits a `verdict_parser=heuristic` warn log so its usage can be tracked toward eventual removal in v0.4.
-- **`decline` is gate1-routing-only**: it's a 5th value of the same `## Verdict:` line, not a separate channel. Free-form mentions of "decline" inside the analysis body are reviewer reasoning, not routing signals.
+- **`decline` is gate1-routing-only**: it's a valid value on the same `## Verdict:` line for gate1 responses, not a separate channel. Free-form mentions of "decline" inside the analysis body are reviewer reasoning, not routing signals.
 
 If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emitting this line on every reviewer response is the cleanest integration.
 
