@@ -47,7 +47,7 @@
 issue 取得と recall の **後**、ブランチ作成の **前** に走ります。戦略：
 
 1. まず `/claude-c-suite:ask`（単一視点ルータ）を呼ぶ。軽量・高速で、専門1分野で済む issue に最適。
-2. `/ask` が応答末尾に `## Verdict: decline` を出力した場合、`/claude-c-suite:ceo` に昇格して3視点 synthesis を実行。（`decline` は `## Verdict:` 行の5番目の値として扱われ、別チャネルではない。応答本文に "decline" や "escalate" という単語が出てきても、それはレビュアの推論の一部であり routing シグナルではない — 構造化された verdict 行のみがカウントされる。）
+2. `/ask` 応答内で最後に出現した `## Verdict:` 行のトークンが `decline` の場合、`/claude-c-suite:ceo` に昇格して3視点 synthesis を実行。（`decline` は `## Verdict:` 行の5番目の値として扱われ、別チャネルではない。応答本文に "decline" や "escalate" という単語が出てきても、それはレビュアの推論の一部であり routing シグナルではない — 構造化された verdict 行のみがカウントされる。）
 3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析する。構造化行が canonical で last-wins、case は正規化、末尾の句読点は許容。キーワードヒューリスティックは構造化行が無い場合の **fallback のみ** で、warn ログを emit して soft-deprecation の追跡が可能。
 4. **green** → 続行 / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
 

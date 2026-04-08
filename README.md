@@ -47,7 +47,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 Runs **after** the issue is fetched and recall is done, **before** the branch is created. Strategy:
 
 1. Invoke `/claude-c-suite:ask` first — a single-lens auto-router. Cheap, fast, perfect for issues that need only one expert perspective.
-2. If `/ask` ends its response with `## Verdict: decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is treated as a 5th value of the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
+2. If the last `## Verdict:` line's token is `decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is treated as a 5th value of the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
 3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
 4. **green** → continue. **yellow** → ask the user to confirm. **red** → abort unless `force`.
 

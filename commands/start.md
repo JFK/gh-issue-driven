@@ -161,12 +161,16 @@ Review this issue from a design-time perspective:
 - Are the requirements clear and well-scoped?
 - Are there obvious risks, edge cases, or missing constraints?
 - Is the implied approach reasonable, or should the implementer reconsider?
-- If this question genuinely needs synthesis across multiple expert lenses, DECLINE
-  routing and emit one of these tokens at the start of your response:
-  "DECLINE", "needs synthesis", "requires multiple lenses", or "escalate".
+- If this question genuinely needs synthesis across multiple expert lenses, decline
+  routing by emitting `## Verdict: decline` as your final verdict line. Do NOT use
+  free-form keywords (DECLINE, needs synthesis, escalate, etc.) anywhere in your
+  reasoning to signal routing — only the structured `## Verdict:` line counts.
 
-End your response with exactly one line:
-"## Verdict: green" | "## Verdict: yellow" | "## Verdict: red"
+End your response with exactly one line, the canonical verdict:
+"## Verdict: green" | "## Verdict: yellow" | "## Verdict: red" | "## Verdict: decline"
+
+Where `decline` means: "this question needs multiple lenses — please escalate to /ceo".
+The last `## Verdict:` line in your response wins (you can revise mid-analysis).
 ```
 
 ### 9. Gate 1 cascade — invoke `/ask` first
@@ -177,21 +181,27 @@ Capture the full skill output as `ASK_OUTPUT`.
 
 ### 10. Detect decline and escalate if needed
 
-Scan `ASK_OUTPUT` for a **structured decline verdict** — a line matching the regex
-`^\s*##\s*Verdict:\s*decline\b` (case-insensitive). If multiple match, the **last one wins**.
+Scan `ASK_OUTPUT` for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b`
+(case-insensitive). If one or more match, take the **LAST** occurrence (last-wins) and lowercase
+the captured token. This is the same scan-and-take-last rule used in step 11 — decline is just
+a 5th valid token on the same line, not a separate channel.
 
 Free-form mentions of `decline`, `needs synthesis`, `escalate`, etc. inside the analysis body
 are **not** decline signals — they are the reviewer's reasoning. Only the structured verdict
-line counts. (This is the same contract used in step 11 for color verdicts; decline is just
-a 5th valid token on the same line, not a separate channel.)
+line counts. The escalation check operates on the LAST `## Verdict:` line's token across the
+**full token set**, so a reviewer who writes "I first thought `## Verdict: decline` but on
+reflection `## Verdict: green`" correctly resolves to green and does NOT escalate.
 
-- **If a `## Verdict: decline` line is present**: escalate.
+- **If the last token is `decline`**: escalate.
 
   > **Invoke the `/claude-c-suite:ceo` skill via the Skill tool**, passing the same gate1 prompt block plus a one-line note `(Escalated from /ask: <first 200 chars of ask output>)`. Wait for the full markdown response.
 
   Use the `/ceo` output as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO="ceo"`.
 
-- **Otherwise**: use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
+- **Otherwise** (the last token is `green`/`yellow`/`red`, OR no structured line was found at all):
+  use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
+  The verdict will be parsed in step 11 (which re-scans the same lines using the same last-wins
+  contract — duplication is intentional for v0.1.1; #14 / future refactor will share the parser).
 
 If the `/ask` skill is not installed, fall back directly to `/ceo`. If both are missing, log a loud warning `gate1 skipped: claude-c-suite not installed`, set `GATE1_VERDICT="unknown"`, and continue (do not abort).
 
