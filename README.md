@@ -47,8 +47,8 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 Runs **after** the issue is fetched and recall is done, **before** the branch is created. Strategy:
 
 1. Invoke `/claude-c-suite:ask` first — a single-lens auto-router. Cheap, fast, perfect for issues that need only one expert perspective.
-2. If `/ask` declines (emits `DECLINE`, `needs synthesis`, `requires multiple lenses`, or `escalate`), escalate to `/claude-c-suite:ceo` for full 3-lens synthesis.
-3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response (with heuristic fallback).
+2. If `/ask` ends its response with `## Verdict: decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is treated as a 5th value of the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
+3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
 4. **green** → continue. **yellow** → ask the user to confirm. **red** → abort unless `force`.
 
 ### Gate 2 — Pre-PR review battery (`/gh-issue-driven:ship`)
@@ -66,13 +66,27 @@ Runs **after** the implementation, **before** the PR is created. Four reviewers 
 
 ### Verdict line convention
 
-Reviewer skills are encouraged to end their response with:
+Reviewer skills must end their response with one of these structured verdict lines:
 
 ```
 ## Verdict: green
+## Verdict: yellow
+## Verdict: red
+## Verdict: decline   # gate1 (/ask) only — routing escalation signal
+## Verdict: pass      # /audit only
+## Verdict: fail      # /audit only
 ```
 
-(or `yellow`, `red`, or `pass`/`fail` for `/audit`). `gh-issue-driven` looks for this line first and falls back to keyword heuristics if it's missing. If you maintain a c-suite or phd-panel skill, adding this line makes integration cleaner.
+Rules:
+
+- **The structured line is canonical.** `gh-issue-driven` parses this line first.
+- **Last-wins**: if multiple `## Verdict:` lines appear in the response, the **last** occurrence is used (so reviewers can naturally write "at first I thought red, but actually green").
+- **Case insensitive**: `Green` / `green` / `GREEN` all normalize to `green`.
+- **Trailing punctuation tolerated**: `## Verdict: green.` is accepted (`\b<token>\b` regex).
+- **Heuristic is fallback only**: if no structured line is present, a keyword heuristic runs and emits a `verdict_parser=heuristic` warn log so its usage can be tracked toward eventual removal in v0.4.
+- **`decline` is gate1-routing-only**: it's a 5th value of the same `## Verdict:` line, not a separate channel. Free-form mentions of "decline" inside the analysis body are reviewer reasoning, not routing signals.
+
+If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emitting this line on every reviewer response is the cleanest integration.
 
 ---
 

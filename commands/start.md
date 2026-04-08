@@ -67,7 +67,6 @@ Built-in defaults (also see `/gh-issue-driven:config show`):
   "gate1": {
     "primary": "/claude-c-suite:ask",
     "fallback": "/claude-c-suite:ceo",
-    "decline_tokens": ["DECLINE", "needs synthesis", "requires multiple lenses", "escalate"],
     "yellow_continue_requires_confirm": true
   }
 }
@@ -178,29 +177,44 @@ Capture the full skill output as `ASK_OUTPUT`.
 
 ### 10. Detect decline and escalate if needed
 
-Scan `ASK_OUTPUT` for any of the configured `gate1.decline_tokens` (case-insensitive substring match): `DECLINE`, `needs synthesis`, `requires multiple lenses`, `escalate`.
+Scan `ASK_OUTPUT` for a **structured decline verdict** — a line matching the regex
+`^\s*##\s*Verdict:\s*decline\b` (case-insensitive). If multiple match, the **last one wins**.
 
-- **If a decline token is present**: escalate.
+Free-form mentions of `decline`, `needs synthesis`, `escalate`, etc. inside the analysis body
+are **not** decline signals — they are the reviewer's reasoning. Only the structured verdict
+line counts. (This is the same contract used in step 11 for color verdicts; decline is just
+a 5th valid token on the same line, not a separate channel.)
+
+- **If a `## Verdict: decline` line is present**: escalate.
 
   > **Invoke the `/claude-c-suite:ceo` skill via the Skill tool**, passing the same gate1 prompt block plus a one-line note `(Escalated from /ask: <first 200 chars of ask output>)`. Wait for the full markdown response.
 
   Use the `/ceo` output as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO="ceo"`.
 
-- **If no decline token is present**: use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
+- **Otherwise**: use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
 
 If the `/ask` skill is not installed, fall back directly to `/ceo`. If both are missing, log a loud warning `gate1 skipped: claude-c-suite not installed`, set `GATE1_VERDICT="unknown"`, and continue (do not abort).
 
 ### 11. Parse the gate1 verdict
 
-Look for an explicit verdict line in `GATE1_OUTPUT`, in this priority order:
+Parse `GATE1_VERDICT` from `GATE1_OUTPUT` using this two-step contract:
 
-1. A line matching `^##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive) — use that color.
-2. Otherwise, apply heuristics on the full text:
-   - **red** if any of: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, three or more `## Verdict: red`-style markers, three or more `Critical:` lines.
+1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching the regex
+   `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive). If one or more match, take the
+   **LAST** occurrence (last-wins), lowercase the captured token, and use it. Trailing punctuation
+   on the line (e.g. `## Verdict: green.`) is fine — `\b<token>\b` already handles it. Token case
+   is normalized via `.lower()`, so `Green`, `green`, and `GREEN` all map to `green`.
+
+2. **Heuristic fallback** — only runs when **no structured line was found**. Emit a single warn-level
+   log line `verdict_parser=heuristic gate=gate1 reason=no_structured_line` so the soft-deprecation
+   of the heuristic can be tracked in real runs (this signal feeds the v0.4 decision to drop
+   heuristics entirely).
+   - **red** if any of: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, three or more `Critical:` lines.
    - **yellow** if any of: `WARN`, `consider`, `recommend`, one or two `Warning:` markers, no red signals.
    - **green** otherwise.
 
-Set `GATE1_VERDICT` accordingly.
+Set `GATE1_VERDICT` accordingly. Note: `decline` is handled in step 10 and never reaches step 11 —
+by the time `GATE1_OUTPUT` is set here, decline has already been escalated to `/ceo`.
 
 ### 12. Verdict handling
 

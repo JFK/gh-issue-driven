@@ -37,7 +37,6 @@ This command is **mostly read-only**. The single mutating action is `init`, whic
   "gate1": {
     "primary": "/claude-c-suite:ask",
     "fallback": "/claude-c-suite:ceo",
-    "decline_tokens": ["DECLINE", "needs synthesis", "requires multiple lenses", "escalate"],
     "yellow_continue_requires_confirm": true
   },
   "gate2": {

@@ -47,8 +47,8 @@
 issue 取得と recall の **後**、ブランチ作成の **前** に走ります。戦略：
 
 1. まず `/claude-c-suite:ask`（単一視点ルータ）を呼ぶ。軽量・高速で、専門1分野で済む issue に最適。
-2. `/ask` が decline（`DECLINE` / `needs synthesis` / `requires multiple lenses` / `escalate` を出力に含む）した場合、`/claude-c-suite:ceo` に昇格して3視点 synthesis を実行。
-3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析（無ければヒューリスティック）。
+2. `/ask` が応答末尾に `## Verdict: decline` を出力した場合、`/claude-c-suite:ceo` に昇格して3視点 synthesis を実行。（`decline` は `## Verdict:` 行の5番目の値として扱われ、別チャネルではない。応答本文に "decline" や "escalate" という単語が出てきても、それはレビュアの推論の一部であり routing シグナルではない — 構造化された verdict 行のみがカウントされる。）
+3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析する。構造化行が canonical で last-wins、case は正規化、末尾の句読点は許容。キーワードヒューリスティックは構造化行が無い場合の **fallback のみ** で、warn ログを emit して soft-deprecation の追跡が可能。
 4. **green** → 続行 / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
 
 ### Gate 2 — PR 作成直前のレビューバッテリー（`/gh-issue-driven:ship`）
@@ -66,13 +66,27 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ### Verdict 行の規約
 
-レビュアの skill には、応答末尾に以下を含めることを推奨：
+レビュアの skill は、応答末尾に以下のいずれかの行を出力すること：
 
 ```
 ## Verdict: green
+## Verdict: yellow
+## Verdict: red
+## Verdict: decline   # gate1 (/ask) のみ — routing 昇格シグナル
+## Verdict: pass      # /audit のみ
+## Verdict: fail      # /audit のみ
 ```
 
-（または `yellow` / `red` / `/audit` なら `pass` / `fail`）。`gh-issue-driven` はこの行を最優先で解釈し、無ければキーワードヒューリスティックにフォールバックします。
+ルール：
+
+- **構造化行が canonical**。`gh-issue-driven` はこの行を最優先で解釈する。
+- **last-wins**: 応答中に複数行ある場合、最後の出現が勝つ（"最初は red と思ったが結局 green" のような自然な記述に対応）。
+- **case insensitive**: `Green` / `green` / `GREEN` はすべて `green` に正規化される。
+- **末尾の句読点 OK**: `## Verdict: green.` のような形式も `\b<token>\b` で許容される。
+- **キーワードヒューリスティックは fallback のみ**: 構造化行が無い場合だけ走る。fallback したときは `verdict_parser=heuristic` という warn ログを emit するので、ヒューリスティック完全廃止 (v0.4) の判断材料として追跡可能。
+- **`decline` は gate1 routing 専用**: 5番目の verdict 値で、別チャネルではない。本文中に "decline" の単語が出ても、それは routing シグナルではなくレビュアの推論。
+
+`claude-c-suite` / `claude-phd-panel` などの reviewer skill を保守している場合、この行を出力するように改修すれば統合がよりクリーンになる。
 
 ---
 
