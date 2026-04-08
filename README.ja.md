@@ -66,7 +66,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ### Verdict 行の規約
 
-レビュアの skill は、応答末尾に、次のうち **1行だけ** を出力すること：
+レビュアの skill は、応答末尾に最終的な `## Verdict:` 行を出力すること。トークンは次のいずれか：
 
 - `## Verdict: green`
 - `## Verdict: yellow`
@@ -74,6 +74,8 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 - `## Verdict: decline`  &nbsp;&nbsp;— gate1 (`/ask`) のみ、routing 昇格シグナル
 - `## Verdict: pass`  &nbsp;&nbsp;— `/audit` のみ
 - `## Verdict: fail`  &nbsp;&nbsp;— `/audit` のみ
+
+（応答中に複数の `## Verdict:` 行が現れた場合は last-wins が適用される — 下記ルール参照。）
 
 ルール：
 

@@ -66,7 +66,7 @@ Runs **after** the implementation, **before** the PR is created. Four reviewers 
 
 ### Verdict line convention
 
-Reviewer skills must end their response with **exactly one** of the following structured verdict lines:
+Reviewer skills must end their response with a final `## Verdict:` line. The token must be one of:
 
 - `## Verdict: green`
 - `## Verdict: yellow`
@@ -74,6 +74,8 @@ Reviewer skills must end their response with **exactly one** of the following st
 - `## Verdict: decline`  &nbsp;&nbsp;— gate1 (`/ask`) only; routing escalation signal
 - `## Verdict: pass`  &nbsp;&nbsp;— `/audit` only
 - `## Verdict: fail`  &nbsp;&nbsp;— `/audit` only
+
+(If multiple `## Verdict:` lines appear in the response, last-wins applies — see Rules below.)
 
 Rules:
 

@@ -210,7 +210,7 @@ reflection `## Verdict: green`" correctly resolves to green and does NOT escalat
 - **Otherwise** (the last token is `green`/`yellow`/`red`, OR no structured line was found at all):
   use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
   The verdict will be parsed in step 11 (which re-scans the same lines using the same last-wins
-  contract — duplication is intentional for v0.1.1; #14 / future refactor will share the parser).
+  contract — duplication is intentional for v0.1.1; a future refactor will share the parser).
 
 If the `/ask` skill is not installed, fall back directly to `/ceo`. If both are missing, log a loud warning `gate1 skipped: claude-c-suite not installed`, set `GATE1_VERDICT="unknown"`, and continue (do not abort).
 

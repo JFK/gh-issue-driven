@@ -91,10 +91,13 @@ Construct one shared block all four reviewers will receive:
 <contents of /tmp/gh-issue-driven.diff>
 
 ## Your task
-Review this change. End with exactly one line:
+Review this change. End your response with a final `## Verdict:` line (if multiple
+`## Verdict:` lines appear earlier in the response, the LAST one wins). The token must be one of:
 "## Verdict: green" | "## Verdict: yellow" | "## Verdict: red"
-For /audit specifically, end with:
+For /audit specifically, the token must be one of:
 "## Verdict: pass" | "## Verdict: fail"
+You can naturally revise mid-analysis ("at first I thought yellow, but actually green") —
+the last `## Verdict:` line is what counts.
 ```
 
 ### 6. Gate 2 — parallel reviewer battery
