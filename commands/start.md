@@ -166,12 +166,13 @@ Review this issue from a design-time perspective:
   free-form keywords (DECLINE, needs synthesis, escalate, etc.) anywhere in your
   reasoning to signal routing — only the structured `## Verdict:` line counts.
 
-End your response with exactly one final canonical verdict line:
+End your response with a final `## Verdict:` line (if multiple `## Verdict:` lines
+appear earlier in the response, the LAST one wins). The token must be one of:
 "## Verdict: green" | "## Verdict: yellow" | "## Verdict: red" | "## Verdict: decline"
 
 Where `decline` means: "this question needs multiple lenses — please escalate to /ceo".
-You may revise your assessment earlier in the response, but if you emit multiple
-`## Verdict:` lines, only the final one is authoritative and it must be the last line.
+You can naturally revise mid-analysis ("at first I thought decline, but actually green") —
+the last `## Verdict:` line is what counts.
 ```
 
 ### 9. Gate 1 cascade — invoke `/ask` first
@@ -184,8 +185,8 @@ Capture the full skill output as `ASK_OUTPUT`.
 
 Scan `ASK_OUTPUT` for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b`
 (case-insensitive). If one or more match, take the **LAST** occurrence (last-wins) and lowercase
-the captured token. This is the same scan-and-take-last rule used in step 11 — `decline` is an
-additional valid token on the same line for gate1, not a separate channel.
+the captured token. This uses the same last-wins structured-line approach as step 11, but with an
+expanded token set here to include `decline`; it is not a separate channel.
 
 Free-form mentions of `decline`, `needs synthesis`, `escalate`, etc. inside the analysis body
 are **not** decline signals — they are the reviewer's reasoning. Only the structured verdict

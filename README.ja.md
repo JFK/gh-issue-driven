@@ -66,16 +66,14 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ### Verdict 行の規約
 
-レビュアの skill は、応答末尾に以下のいずれかの行を出力すること：
+レビュアの skill は、応答末尾に、次のうち **1行だけ** を出力すること：
 
-```
-## Verdict: green
-## Verdict: yellow
-## Verdict: red
-## Verdict: decline   # gate1 (/ask) のみ — routing 昇格シグナル
-## Verdict: pass      # /audit のみ
-## Verdict: fail      # /audit のみ
-```
+- `## Verdict: green`
+- `## Verdict: yellow`
+- `## Verdict: red`
+- `## Verdict: decline`  &nbsp;&nbsp;— gate1 (`/ask`) のみ、routing 昇格シグナル
+- `## Verdict: pass`  &nbsp;&nbsp;— `/audit` のみ
+- `## Verdict: fail`  &nbsp;&nbsp;— `/audit` のみ
 
 ルール：
 
