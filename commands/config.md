@@ -10,6 +10,20 @@ arguments:
 
 This command is **mostly read-only**. The single mutating action is `init`, which writes `~/.claude/gh-issue-driven-config.json` only when the file does not yet exist. It must NEVER overwrite an existing config file. Never echo unrelated files. Never modify anything outside `~/.claude/gh-issue-driven-config.json`.
 
+## Notes on specific keys
+
+### `memory.context_id`
+
+Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
+
+If the name is not found in the user's Kagura Memory contexts, recall is skipped silently for that session (log line emitted) — the rest of `/start` continues normally. Set `memory.skip_on_failure=false` to make recall failure abort the command instead.
+
+The default `gh-issue-driven-dev` is a placeholder. Users with kagura-memory installed should change it to either:
+- The UUID of their preferred context, OR
+- The exact name of an existing context in their Kagura Memory
+
+Users without kagura-memory installed can ignore this field — recall is skipped automatically when the plugin is missing.
+
 ## Built-in defaults
 
 ```json
@@ -30,7 +44,7 @@ This command is **mostly read-only**. The single mutating action is `init`, whic
     "max_slug_chars": 40
   },
   "memory": {
-    "context_id": "kagura-dev",
+    "context_id": "gh-issue-driven-dev",
     "recall_k": 5,
     "skip_on_failure": true
   },

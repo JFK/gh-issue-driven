@@ -44,6 +44,31 @@ You are starting work on a GitHub issue. Read each step carefully — the order 
 
 Read `~/.claude/gh-issue-driven-config.json` if it exists. If absent or unparseable, log a single warning line and use the built-in defaults documented below. Deep-merge user values over defaults.
 
+#### 2a. Resolve `memory.context_id` (name → UUID)
+
+`memory.context_id` accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). The default value is a name, not a UUID, so without resolution recall would fail for any user whose Kagura Memory has a different default context.
+
+Detect which form was given:
+
+```
+UUID_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+```
+
+- **If `memory.context_id` matches `UUID_REGEX`**: use as-is, no resolution needed.
+- **If it does not match**: treat it as a name and resolve to a UUID at runtime.
+
+Resolution procedure (only when `NO_MEMORY` is not set AND the value is a name):
+
+> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find the first context where `.name == <config value>` (case-sensitive exact match). Take its `.id` field as the resolved UUID.
+
+Edge cases:
+- **Name not found**: log a single warning `memory.context_id "<name>" not found in available contexts; recall will be skipped` and set the in-memory `memory.context_id` to a sentinel `__unresolved__`. Step 7's recall will see this sentinel and skip the recall call (treated the same as `skip_on_failure`). **Do not abort** the command.
+- **Multiple matches**: take the first. Log a one-line debug note `memory.context_id "<name>" matched N contexts; using first: <uuid>` so the maintainer can disambiguate later if needed.
+- **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped` and set the sentinel as above.
+- **The resolved UUID is cached only in the in-session config** — do **not** write the resolved UUID back to `~/.claude/gh-issue-driven-config.json`. The resolution happens fresh on every `/gh-issue-driven:start` invocation, which keeps the config file portable across machines and Kagura Memory installations.
+
+If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
+
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
 ```json
@@ -61,7 +86,7 @@ Built-in defaults (also see `/gh-issue-driven:config show`):
     "max_slug_chars": 40
   },
   "memory": {
-    "context_id": "kagura-dev",
+    "context_id": "gh-issue-driven-dev",
     "recall_k": 5,
     "skip_on_failure": true
   },
@@ -129,11 +154,11 @@ git show-ref --verify --quiet refs/heads/<branch> && BRANCH="<branch>-$(date -u 
 
 ### 7. Memory recall
 
-Unless `NO_MEMORY` is set:
+Unless `NO_MEMORY` is set AND the resolved `memory.context_id` is not the `__unresolved__` sentinel from step 2a:
 
-> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>`, `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
+> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a), `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
 
-Capture results as a list of `{summary, score}` pairs. If the tool errors, log a warning and continue (recall is best-effort).
+Capture results as a list of `{summary, score}` pairs. If the tool errors, log a warning and continue (recall is best-effort). If the `memory.context_id` was `__unresolved__`, skip the recall call entirely and proceed to step 8 with an empty result list — the warning was already emitted in step 2a.
 
 ### 8. Build the gate1 prompt block
 
