@@ -77,16 +77,31 @@ Runs **after** the issue is fetched and recall is done, **before** the branch is
 
 ### Gate 2 — Pre-PR review battery (`/gh-issue-driven:ship`)
 
-Runs **after** the implementation, **before** the PR is created. Four reviewers fire **in parallel** in a single Claude turn:
+Runs **after** the implementation, **before** the PR is created. By default, **3 advisor reviewers** fire in parallel in a single Claude turn (advisor-only mode):
 
 | Reviewer | Role | Verdict type |
 |---|---|---|
-| `/claude-c-suite:audit` | Conformance audit | **Binary** (`pass`/`fail`) — hard gate |
 | `/claude-c-suite:cso` | Security | Advisory (`green`/`yellow`/`red`) |
 | `/claude-c-suite:qa-lead` | Test coverage | Advisory |
 | `/claude-c-suite:cto` | Tech debt | Advisory |
 
-**`/audit` is a hard gate.** If it returns fail, PR creation is blocked even with `force`. The three advisors are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1.
+The three advisor verdicts are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1 (green → continue, yellow → confirm, red → abort unless `force`).
+
+#### Optional binary gate (off by default)
+
+Plugin maintainers who want a **hard binary gate** (a `pass`/`fail` reviewer that blocks PR creation even with `force`) can configure one via `gate2.binary_gate` in `~/.claude/gh-issue-driven-config.json`:
+
+```json
+{
+  "gate2": {
+    "binary_gate": "/claude-c-suite:audit"
+  }
+}
+```
+
+When set, the configured skill is invoked alongside the 3 advisors as a 4th reviewer. Its verdict (`pass`/`fail`) is read as a hard release gate.
+
+The default is `null` (no binary gate). Earlier versions defaulted to `/claude-c-suite:audit`, but that skill is the conformance script for the `claude-c-suite` plugin's own command files — it errors out on any other plugin and previously blocked every `/ship` invocation in non-claude-c-suite-plugin repos. The fix landed in v0.1.1 (#26).
 
 ### Verdict line convention
 
@@ -164,7 +179,7 @@ For parallel reviewers in gate2:
 
 If a skill is not installed, the command degrades:
 - Missing reviewer → that gate slot becomes `unknown`, prints a warning, continues.
-- Missing `/audit` (hard gate) → requires `force` flag to ship.
+- `/audit` (or any configured `gate2.binary_gate`) → only relevant if `gate2.binary_gate` is set; default is `null` (advisor-only mode).
 - Missing `kagura-memory` → recall and session-start/summary are skipped silently.
 
 You can probe what's installed with `/gh-issue-driven:doctor`.
@@ -191,7 +206,7 @@ Key options:
 | `memory.context_id` | `kagura-dev` | Kagura Memory context for recall. |
 | `gate1.primary` | `/claude-c-suite:ask` | First reviewer in the gate1 cascade. |
 | `gate1.fallback` | `/claude-c-suite:ceo` | Used when primary declines. |
-| `gate2.binary_gate` | `/claude-c-suite:audit` | The only override-blocking gate. |
+| `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
 | `copilot.max_loops` | `5` | Maximum review iterations. |
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |

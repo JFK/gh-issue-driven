@@ -26,6 +26,28 @@ When `lang == "ja"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`
 
 What v0.1.1 minimal does NOT do (left for v0.1.2 / #19): no translation table, no message catalog, no CI parity lint, no source-level localization of templates. The English templates in command files remain visible to anyone reading the spec; only the runtime output is localized.
 
+### `gate2.binary_gate`
+
+Optional skill name that gate2 invokes as a **binary release gate** (returns `pass` or `fail`, with `fail` being a hard release block that even `--force` cannot override). The default is `null`, which means **gate2 runs in advisor-only mode** — only the 3 advisors (`cso`, `qa-lead`, `cto`) are invoked, and their aggregate verdict (green/yellow/red) is the sole gate2 signal.
+
+**Why the default is `null`** (changed in v0.1.1 from `/claude-c-suite:audit`):
+
+The previous default `/claude-c-suite:audit` is the conformance audit script for the `claude-c-suite` plugin's own command files. It runs `python3 scripts/audit.py`, and that script exists ONLY in the `claude-c-suite-plugin` repo. For any other plugin (gh-issue-driven, kagura-memory, claude-phd-panel, etc.), the script doesn't exist, so `/audit` errors out, and ship.md's "binary gate unavailable → require --force" rule blocked every `/ship` invocation in non-claude-c-suite-plugin repos. That was a real new-user blocker. The fix: make the binary gate opt-in.
+
+**Setting `binary_gate` to a non-null skill name**:
+
+If you maintain `claude-c-suite-plugin` itself, set `gate2.binary_gate: "/claude-c-suite:audit"` to enable the conformance check. The skill is then invoked as part of the gate2 parallel reviewer battery (alongside the 3 advisors), and its verdict is read as a hard binary gate per ship.md step 7. Any other skill name can also be set if a generic audit skill is added in the future — the contract is just "the skill must emit a `## Verdict: pass` or `## Verdict: fail` line."
+
+**What advisor-only mode means in practice**:
+
+- ship.md step 6 invokes only 3 reviewers (cso, qa-lead, cto)
+- ship.md step 7 (audit verdict) is skipped entirely; `AUDIT_VERDICT = "skipped"`
+- ship.md step 8 (advisor aggregation) computes the gate2 verdict from the 3 advisors
+- ship.md step 9 (verdict handling) reads green/yellow/red as the sole signal — no separate "binary gate failed" abort path
+- ship.md step 12 PR body shows `gate2 mode: advisor-only (no binary gate configured)` instead of `audit: pass`
+
+In advisor-only mode, the 3-advisor aggregate is the gate2 signal. All three returning green proceeds; any yellow asks for confirmation; any red aborts unless `--force` is set.
+
 ### `memory.context_id`
 
 Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). Name matching is **case-insensitive** (so `Gh-Issue-Driven-Dev` and `gh-issue-driven-dev` both resolve to the same context). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
@@ -75,7 +97,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "yellow_continue_requires_confirm": true
   },
   "gate2": {
-    "binary_gate": "/claude-c-suite:audit",
+    "binary_gate": null,
     "advisors": [
       "/claude-c-suite:cso",
       "/claude-c-suite:qa-lead",

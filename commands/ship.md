@@ -152,8 +152,23 @@ the last `## Verdict:` line is what counts.
 
 ### 6. Gate 2 — parallel reviewer battery
 
-> **In a single tool-call batch, invoke all four reviewer skills in parallel via the Skill tool**:
-> - `/claude-c-suite:audit`
+Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
+
+**If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the 3 advisors:
+
+> **In a single tool-call batch, invoke the 3 advisor skills in parallel via the Skill tool**:
+> - `/claude-c-suite:cso` (or whatever is configured in `gate2.advisors[0]`)
+> - `/claude-c-suite:qa-lead` (or `gate2.advisors[1]`)
+> - `/claude-c-suite:cto` (or `gate2.advisors[2]`)
+>
+> Each receives the same gate2 prompt block from step 5. Do not proceed until all 3 return.
+
+Capture each output as `CSO_OUT`, `QA_OUT`, `CTO_OUT`. `AUDIT_OUT` stays null.
+
+**Otherwise** (`gate2.binary_gate` is a non-null skill name, e.g. `"/claude-c-suite:audit"` for plugin maintainers who maintain claude-c-suite-plugin itself):
+
+> **In a single tool-call batch, invoke all 4 reviewer skills in parallel via the Skill tool**:
+> - `<gate2.binary_gate>` (e.g. `/claude-c-suite:audit`)
 > - `/claude-c-suite:cso`
 > - `/claude-c-suite:qa-lead`
 > - `/claude-c-suite:cto`
@@ -162,9 +177,15 @@ the last `## Verdict:` line is what counts.
 
 Capture each output as `AUDIT_OUT`, `CSO_OUT`, `QA_OUT`, `CTO_OUT`.
 
-If any of these skills is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return. **Exception**: if `/audit` is unavailable, treat the binary gate as `unknown` (not pass) and require `FORCE` to continue.
+In either mode, if any **advisor** skill is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return.
 
-### 7. Audit verdict — the hard gate
+**Binary gate availability** (only when `gate2.binary_gate` is non-null): if the configured binary gate skill is unavailable at invocation time (not installed, errors out), treat the binary gate as `unknown` (not pass) and require `FORCE` to continue. This is the "binary gate is configured but the skill broke" path — distinct from the "binary gate is null by design" path which doesn't exercise the FORCE rule at all.
+
+### 7. Audit verdict — the hard gate (skipped in advisor-only mode)
+
+**If `gate2.binary_gate` was `null` in step 6** (advisor-only mode): skip this step entirely. Set `AUDIT_VERDICT = "skipped"` and proceed to step 8. The binary gate concept does not apply in this run; the gate2 verdict is determined purely by the advisor aggregate in step 8.
+
+**Otherwise** (the binary gate skill was invoked in step 6 and `AUDIT_OUT` is populated):
 
 Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
 
@@ -172,7 +193,7 @@ Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
    `^\s*##\s*Verdict:\s*(pass|fail)\b` (case-insensitive). If one or more match, take the **LAST**
    occurrence (last-wins), lowercase, and use it. Trailing punctuation is tolerated; case is
    normalized via `.lower()`.
-2. **Skill error signal**: if the Skill tool returned an error/non-zero indication for `/audit`
+2. **Skill error signal**: if the Skill tool returned an error/non-zero indication for the binary gate skill
    AND no structured verdict line was found, treat as `fail`. (A clean structured `pass` line is
    never overridden by a downstream error after the fact.)
 3. **Heuristic fallback** — only runs when no structured line and no skill error. Emit a single
@@ -193,6 +214,8 @@ Fix the conformance failures and re-run /gh-issue-driven:ship.
 Then exit. Do not push, do not create the PR.
 
 ### 8. Advisor aggregation
+
+This step runs in **both** modes (advisor-only and binary-gate-configured). When `AUDIT_VERDICT == "skipped"` (advisor-only mode from step 7), the advisor aggregate computed here IS the gate2 verdict — there's no separate binary gate signal to combine. When the binary gate ran and passed, the advisor aggregate is the secondary signal (the binary gate's pass was the primary release-block check, and the advisor aggregate determines green/yellow/red for verdict handling in step 9).
 
 For each of `CSO_OUT`, `QA_OUT`, `CTO_OUT`, classify into `green | yellow | red` using this contract:
 
@@ -226,7 +249,8 @@ Update the state file:
 
 ```json
 "gate2": {
-  "audit": "pass",
+  "audit": "pass | fail | skipped",
+  "binary_gate": "<skill name from config, or null in advisor-only mode>",
   "cso": "<verdict>",
   "qa_lead": "<verdict>",
   "cto": "<verdict>",
@@ -237,7 +261,9 @@ Update the state file:
 "phase": "gated"
 ```
 
-Write `<branch-flat>.gate2.md` with each reviewer's full output under section headers `## /claude-c-suite:audit`, `## /claude-c-suite:cso`, etc.
+The `audit` field is `"skipped"` when `gate2.binary_gate` was null (advisor-only mode). The `binary_gate` field records which skill was configured (or `null` for advisor-only), so `/gh-issue-driven:status` can render the right summary.
+
+Write `<branch-flat>.gate2.md` with each reviewer's full output under section headers `## <binary_gate skill name>` (omit the section entirely in advisor-only mode), `## /claude-c-suite:cso`, `## /claude-c-suite:qa-lead`, `## /claude-c-suite:cto`.
 
 ### 11. Push the branch
 
@@ -263,7 +289,8 @@ Closes #<issue_num>
 <key choices Claude can identify from the diff — file groupings, new dependencies, removed code>
 
 ## Pre-PR review summary
-- audit: pass
+- audit: pass    ← only when binary_gate was configured AND ran
+- gate2 mode: advisor-only (no binary gate configured)    ← only when binary_gate was null
 - cso: <verdict>
 - qa-lead: <verdict>
 - cto: <verdict>
@@ -508,8 +535,10 @@ Stop. Do not continue running anything else.
 
 | Symptom | What this command does |
 |---|---|
-| `/audit` returns fail | HARD ABORT. Not even FORCE bypasses this. |
-| Reviewer skill missing | Slot becomes `unknown`, gate2 degrades to whichever skills did respond. |
+| `gate2.binary_gate` is `null` (default in v0.1.1+) | Gate2 runs in advisor-only mode. /audit is not invoked. AUDIT_VERDICT="skipped". The advisor aggregate is the sole gate2 verdict. |
+| `gate2.binary_gate` is configured AND the skill returns `fail` | HARD ABORT. Not even FORCE bypasses this. |
+| `gate2.binary_gate` is configured AND the skill is unavailable / errors out | Treat the binary gate as `unknown` (not pass) and require FORCE to continue. |
+| Advisor reviewer skill missing | Slot becomes `unknown`, gate2 degrades to whichever advisor skills did respond. |
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |

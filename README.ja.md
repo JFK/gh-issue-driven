@@ -76,16 +76,31 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ### Gate 2 — PR 作成直前のレビューバッテリー（`/gh-issue-driven:ship`）
 
-実装の **後**、PR 作成の **前** に走ります。4つのレビュアが **1ターン内で並列発火**：
+実装の **後**、PR 作成の **前** に走ります。デフォルトでは **3つの advisor reviewer** が 1ターン内で並列発火 (advisor-only mode)：
 
 | レビュア | 役割 | verdict 型 |
 |---|---|---|
-| `/claude-c-suite:audit` | 規約遵守監査 | **Binary**（`pass`/`fail`）— ハードゲート |
 | `/claude-c-suite:cso` | セキュリティ | Advisory（`green`/`yellow`/`red`） |
 | `/claude-c-suite:qa-lead` | テスト網羅 | Advisory |
 | `/claude-c-suite:cto` | 技術負債 | Advisory |
 
-**`/audit` はハードゲート**。fail なら `force` でも PR 作成を中止。advisor 3つは集約：いずれか red → red、yellow → yellow、それ以外 green。
+3つの advisor verdict が集約される：いずれか red → red、yellow → yellow、それ以外 green。verdict handling は gate1 と同じ (green → 続行 / yellow → 確認 / red → abort、`force` で override)。
+
+#### Optional binary gate (default off)
+
+「fail なら `force` でも block されるハードバイナリゲート」が欲しいプラグインメンテナは、`~/.claude/gh-issue-driven-config.json` の `gate2.binary_gate` に skill 名を設定できます：
+
+```json
+{
+  "gate2": {
+    "binary_gate": "/claude-c-suite:audit"
+  }
+}
+```
+
+設定すると、その skill が advisor 3つに加えて 4つ目のレビュアとして並列発火し、その verdict (`pass`/`fail`) がハードリリースゲートとして読まれる。
+
+デフォルトは `null` (binary gate なし)。以前のバージョンは `/claude-c-suite:audit` がデフォルトだったが、これは `claude-c-suite-plugin` 自身の規約遵守チェッカーであり、他のプラグイン (gh-issue-driven 含む) では script が存在せずエラーで終わる → 全 `/ship` invocation を block していた。v0.1.1 (#26) で修正。
 
 ### Verdict 行の規約
 
@@ -163,7 +178,7 @@ Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードでき�
 
 skill が見つからない場合の degrade：
 - レビュア missing → そのゲートスロットは `unknown`、警告を出して継続
-- `/audit` missing（ハードゲート）→ `force` フラグが必要
+- `/audit` (または config の `gate2.binary_gate` で指定された skill) → デフォルトは `null` (advisor-only mode) なので無関係。設定された場合のみ、unavailable で `force` を要求
 - `kagura-memory` missing → recall と session-start/summary をスキップ
 
 `/gh-issue-driven:doctor` で何が入っているか確認できます。
@@ -188,7 +203,7 @@ skill が見つからない場合の degrade：
 | `default_branch` | `main` | base ブランチ |
 | `gate1.primary` | `/claude-c-suite:ask` | gate1 の最初のレビュア |
 | `gate1.fallback` | `/claude-c-suite:ceo` | decline 時のエスカレーション先 |
-| `gate2.binary_gate` | `/claude-c-suite:audit` | override 不可ハードゲート |
+| `gate2.binary_gate` | `null` (off) | optional な override 不可バイナリゲート。skill 名 (例: `/claude-c-suite:audit`) を設定すると有効化 |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
 | `copilot.max_loops` | `5` | 最大ループ数 |
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
