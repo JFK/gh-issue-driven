@@ -56,7 +56,9 @@ This command is **mostly read-only**. The single mutating action is `init`, whic
     "poll_interval_sec": 60,
     "max_wait_sec": 900,
     "run_tests_after_edits": true,
-    "reply_to_non_actionable": false
+    "reply_to_non_actionable": false,
+    "verification_wait_sec": 30,
+    "skip_setup_prompt": false
   },
   "pr": {
     "draft_default": false,

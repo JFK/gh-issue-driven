@@ -1,0 +1,17 @@
+{
+  "reviewRequests": [],
+  "latestReviews": [
+    {
+      "id": "PRR_kwDOExample",
+      "author": { "login": "copilot-pull-request-reviewer" },
+      "body": "I reviewed this PR and have a few suggestions.",
+      "state": "COMMENTED",
+      "submittedAt": "2026-04-09T05:30:12Z"
+    }
+  ],
+  "_fixture_meta": {
+    "scenario": "Mode A success: Automatic Copilot code review fired on PR open. reviewRequests is empty (or transient), but Copilot already left a review captured in latestReviews. Loop SHOULD run.",
+    "expected_queued": true,
+    "expected_detection_method": "latest_reviews"
+  }
+}

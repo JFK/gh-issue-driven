@@ -1,0 +1,11 @@
+{
+  "reviewRequests": [
+    { "__typename": "Bot", "login": "copilot-pull-request-reviewer" }
+  ],
+  "latestReviews": [],
+  "_fixture_meta": {
+    "scenario": "Mode B success: gh CLI 2.88.0+ successfully queued Copilot via gh pr edit --add-reviewer @copilot",
+    "expected_queued": true,
+    "expected_detection_method": "requested_reviewers"
+  }
+}

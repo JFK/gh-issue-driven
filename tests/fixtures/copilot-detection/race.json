@@ -1,0 +1,9 @@
+{
+  "reviewRequests": [],
+  "latestReviews": [],
+  "_fixture_meta": {
+    "scenario": "Mode A race: Automatic Copilot code review IS enabled but the auto-review is still in flight on GitHub's side when our 30s bounded wait expires. From the verification's perspective, this is structurally identical to silent-no-op — both signals are empty. We accept the false skip as a known failure mode (logged at WARN). The user can re-run /gh-issue-driven:ship in resume mode (#14) once the review materializes. The fixture exists to document the case and lock in that the detection logic returns the same shape as silent-no-op (so post-mortem of /status output can't tell them apart from JSON alone — only the operator's knowledge of repo settings can).",
+    "expected_queued": false,
+    "expected_detection_method": "neither"
+  }
+}
