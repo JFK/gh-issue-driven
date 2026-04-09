@@ -129,11 +129,28 @@ Otherwise:
      - **"No, Mode B (gh CLI)"** → delete the cache file (so the next run re-prompts). Fall through to the gh version check, which will hard-fail if `gh < 2.88.0`.
      - **"Skip"** → do not refresh, do not delete. Print a hint that setting `copilot.skip_setup_prompt=true` will silence this prompt permanently. Continue to the gh version check.
 
-3. **gh CLI version check** (always runs after the cache logic resolves). Use the same comparison idiom as `commands/ship.md` step 1's pre-flight to keep the two warn-paths in lockstep:
+3. **gh CLI version check** (always runs after the cache logic resolves). Use the same portable POSIX-awk compare as `commands/ship.md` step 1's pre-flight to keep the two paths in lockstep:
 
    ```bash
-   GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {print $3}')
-   if printf '%s\n%s\n' '2.88.0' "$GH_VER" | sort -V -C 2>/dev/null; then
+   # Strip a leading "v" so a future "gh version v2.88.0" output still parses cleanly.
+   GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {sub(/^v/,"",$3); print $3}')
+   # Portable POSIX awk version compare. `sort -V -C` is GNU-only and silently
+   # breaks on macOS/BSD (it would mark every version as "older", which would
+   # FALSELY trip the hard-fail "neither mode is available" path below for
+   # macOS users on perfectly good gh CLI versions). awk's numeric coercion is
+   # POSIX-mandatory and works identically on macOS, Linux, BSD, WSL.
+   if [ -n "$GH_VER" ] && awk -v ver="$GH_VER" 'BEGIN {
+     sub(/^v/, "", ver);
+     split(ver, v, ".");
+     # exit 0 = OK (>= 2.88.0), exit 1 = too old.
+     # NOTE: this is OPPOSITE polarity to ship.md step 1 (which uses
+     # awk-true=older because ship.md emits a warning while doctor.md
+     # sets a positive flag). Same idiom, different sense.
+     if ((v[1]+0) > 2)  exit 0     # major > 2 → newer → OK
+     if ((v[1]+0) < 2)  exit 1     # major < 2 → older → not OK
+     if ((v[2]+0) >= 88) exit 0    # major == 2, minor >= 88 → OK
+     exit 1                        # major == 2, minor < 88 → not OK
+   }'; then
      GH_VER_OK=true
    else
      GH_VER_OK=false

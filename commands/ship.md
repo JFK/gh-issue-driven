@@ -41,13 +41,24 @@ fi
 This check runs as part of pre-flight, before configuration is loaded — so it cannot read `copilot.enabled` and intentionally always runs. It compares `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op. The warning is **harmless when copilot is disabled** (the loop won't run anyway), so emitting it unconditionally is the simpler design vs deferring to step 2.
 
 ```bash
-GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {print $3}')
-if [ -n "$GH_VER" ]; then
-  if ! printf '%s\n%s\n' '2.88.0' "$GH_VER" | sort -V -C; then
-    echo "warning: gh CLI $GH_VER is older than 2.88.0 — manual Copilot reviewer add will silently no-op."
-    echo "         If copilot is enabled, the loop will still work IF this repo has Automatic Copilot code review enabled."
-    echo "         Run /gh-issue-driven:doctor to confirm setup, or upgrade gh: https://cli.github.com/"
-  fi
+# Strip a leading "v" so a future "gh version v2.88.0" output still parses cleanly.
+GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {sub(/^v/,"",$3); print $3}')
+# Portable POSIX awk version compare (avoids `sort -V -C` which is GNU-only and
+# silently breaks on macOS/BSD). Compares major.minor against (2, 88); patch is
+# ignored because the floor is 2.88.0. A "-rcN" suffix on the patch is also OK
+# because we don't read v[3] at all. The awk also strips a leading "v" defensively
+# even though the GH_VER capture above already does — both layers are independent.
+if [ -n "$GH_VER" ] && awk -v ver="$GH_VER" 'BEGIN {
+  sub(/^v/, "", ver);
+  split(ver, v, ".");
+  if ((v[1]+0) < 2)  exit 0
+  if ((v[1]+0) > 2)  exit 1
+  if ((v[2]+0) < 88) exit 0
+  exit 1
+}'; then
+  echo "warning: gh CLI $GH_VER is older than 2.88.0 — manual Copilot reviewer add will silently no-op."
+  echo "         If copilot is enabled, the loop will still work IF this repo has Automatic Copilot code review enabled."
+  echo "         Run /gh-issue-driven:doctor to confirm setup, or upgrade gh: https://cli.github.com/"
 fi
 ```
 
