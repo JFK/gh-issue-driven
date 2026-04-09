@@ -282,8 +282,12 @@ VERIFY_WAIT_SEC="<from config copilot.verification_wait_sec, default 30>"
 gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 
 # Bounded poll for either signal. Polls every 2s up to VERIFY_WAIT_SEC (default 30s).
-# Mode A's auto-review typically lands within 1-3s of PR creation, so a tight poll
-# interval makes the common case ~3x faster than the original 5s spacing.
+# Mode A auto-review latency varies widely in practice (observed 1s to 240s+ depending
+# on Copilot infra load and repo settings). The 2s poll interval keeps the fast-fire
+# case fast without adding meaningful cost to the slow case. The 30s ceiling is the
+# real timing default — and it is wrong for slow-Mode-A repos. See issue #23 for the
+# architectural fix that retires step 13's bounded wait entirely and lets step 14's
+# polling loop detect silent_no_op naturally.
 DEADLINE=$(( $(date +%s) + VERIFY_WAIT_SEC ))
 COPILOT_QUEUED=false
 DETECTION_METHOD="neither"

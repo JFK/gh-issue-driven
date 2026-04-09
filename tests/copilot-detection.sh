@@ -36,9 +36,22 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
+# Collect fixtures into an array under nullglob so an empty fixtures dir
+# (or a glob with no matches) errors with a clear message instead of
+# iterating once over the literal "$FIXTURES_DIR/*.json" string and tripping
+# `set -e` on the first jq call.
+shopt -s nullglob
+fixtures=("$FIXTURES_DIR"/*.json)
+shopt -u nullglob
+
+if [ ${#fixtures[@]} -eq 0 ]; then
+  echo "FAIL: no fixtures found in $FIXTURES_DIR"
+  exit 1
+fi
+
 # Expectations live next to each fixture in `_fixture_meta` so adding a new
 # detection path means dropping a JSON file with no runner edits.
-for fixture in "$FIXTURES_DIR"/*.json; do
+for fixture in "${fixtures[@]}"; do
   name=$(basename "$fixture" .json)
   TOTAL=$((TOTAL + 1))
 
@@ -72,10 +85,5 @@ done
 
 echo "---"
 echo "$PASSED passed / $FAILED failed / $TOTAL total"
-
-if [ "$TOTAL" -eq 0 ]; then
-  echo "FAIL: no fixtures found in $FIXTURES_DIR"
-  exit 1
-fi
 
 [ "$FAILED" -eq 0 ]
