@@ -28,7 +28,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 # In a repo:
 /gh-issue-driven:doctor          # one-time environment check (will prompt to confirm Step 0)
 /gh-issue-driven:start 142       # phase 1
-# ... implement ...
+# ... implement, then /simplify to review the diff ...
 /gh-issue-driven:ship            # phase 2
 ```
 

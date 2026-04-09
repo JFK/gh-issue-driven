@@ -310,7 +310,9 @@ Memory  <k> related contexts found  (top: "<top summary>" score <score>)
 
 Next steps:
   1. Implement the change on this branch.
-  2. Run /quality and /simplify if your repo provides them.
+  2. Run /simplify (built-in Claude Code skill) to review the diff for reuse,
+     quality, and efficiency before shipping. Address any findings as a
+     follow-up commit on this same branch.
   3. /gh-issue-driven:ship   ← when implementation is ready
 ```
 

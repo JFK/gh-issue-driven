@@ -28,7 +28,7 @@
 # 任意のリポジトリで:
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
 /gh-issue-driven:start 142       # フェーズ1
-# ... 実装 ...
+# ... 実装、その後 /simplify で diff レビュー ...
 /gh-issue-driven:ship            # フェーズ2
 ```
 
