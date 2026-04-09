@@ -191,7 +191,7 @@ Otherwise:
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
         try: /plugin marketplace add JFK/claude-c-suite-plugin
-             /plugin install claude-c-suite@claude-c-suite-plugin
+             /plugin install claude-c-suite@claude-c-suite
      ```
 
 8. **Reviewer plugin: `claude-phd-panel`** (optional but recommended for v0.2 features)
@@ -200,7 +200,7 @@ Otherwise:
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
         try: /plugin marketplace add JFK/claude-phd-panel-plugin
-             /plugin install claude-phd-panel@claude-phd-panel-plugin
+             /plugin install claude-phd-panel@claude-phd-panel
      ```
 
 9. **Memory plugin: `kagura-memory`**
@@ -208,11 +208,11 @@ Otherwise:
    - Warn if missing → `recall and session-start/summary will be skipped`.
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
-        try: /plugin marketplace add JFK/memory-cloud
-             /plugin install kagura-memory@memory-cloud
+        try: /plugin marketplace add kagura-ai/memory-cloud
+             /plugin install kagura-memory@kagura-memory-cloud
      ```
 
-> The `<plugin>@<marketplace>` syntax is what `/plugin install` expects when installing from an external marketplace. If the exact form differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
+> Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. Hence `claude-c-suite@claude-c-suite` (marketplace name is `claude-c-suite`, not `claude-c-suite-plugin`), and `kagura-memory@kagura-memory-cloud` (marketplace name is `kagura-memory-cloud`, GitHub org is `kagura-ai`). If the exact form differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 

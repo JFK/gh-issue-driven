@@ -27,16 +27,18 @@
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
 
-# 推奨 companion プラグイン (無くても degrade して動作):
-/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 レビュア
-/plugin install claude-c-suite@claude-c-suite-plugin
+# 推奨 companion プラグイン (無くても degrade して動作)
+# 注: install target の `@<marketplace>` は marketplace.json の name フィールド (GitHub repo slug ではない)
 
-/plugin marketplace add JFK/memory-cloud             # session-start/summary + recall
-/plugin install kagura-memory@memory-cloud
+/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 レビュア
+/plugin install claude-c-suite@claude-c-suite
+
+/plugin marketplace add kagura-ai/memory-cloud       # session-start/summary + recall
+/plugin install kagura-memory@kagura-memory-cloud
 
 # Optional (v0.2 の深掘りレビュー用):
 /plugin marketplace add JFK/claude-phd-panel-plugin
-/plugin install claude-phd-panel@claude-phd-panel-plugin
+/plugin install claude-phd-panel@claude-phd-panel
 
 # 任意のリポジトリで:
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
@@ -219,7 +221,7 @@ skill が見つからない場合の degrade：
 | `python3` | 推奨 | 一部ヘルパー |
 | [`claude-c-suite`](https://github.com/JFK/claude-c-suite-plugin) | 推奨 | gate1/gate2 レビュア（無くても degrade して動く） |
 | [`claude-phd-panel`](https://github.com/JFK/claude-phd-panel-plugin) | optional | v0.2 の深掘りレビュー用 |
-| [`kagura-memory`](https://github.com/JFK/memory-cloud) | optional | session-start/summary と recall |
+| [`kagura-memory`](https://github.com/kagura-ai/memory-cloud) | optional | session-start/summary と recall |
 
 ---
 
