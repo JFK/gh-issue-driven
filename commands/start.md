@@ -73,22 +73,28 @@ Detect which form was given:
 UUID_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 ```
 
-- **If `memory.context_id` matches `UUID_REGEX`**: use as-is, no resolution needed.
-- **If it does not match**: treat it as a name and resolve to a UUID at runtime.
+Branches (in priority order):
 
-Resolution procedure (only when `NO_MEMORY` is not set AND the value is a name):
+- **If `memory.context_id` is `null`, unset, or an empty string after `trim()`**: this is the canonical "skip recall" value. Skip resolution entirely (no `list_contexts` call), leave the in-session value as `null`, proceed to step 3. Step 7 will read the `null` and skip the recall call.
+- **If `memory.context_id` matches `UUID_REGEX`** (case-insensitive on the hex characters): use as-is, no resolution needed.
+- **Otherwise** (non-empty string that isn't a UUID): treat it as a name and resolve to a UUID at runtime.
 
-> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find the first context where `.name == <config value>` (case-sensitive exact match). Take its `.id` field as the resolved UUID.
+Resolution procedure (only when `NO_MEMORY` is not set AND the value is a non-empty name):
 
-Edge cases:
-- **Name not found**: log a single warning `memory.context_id "<name>" not found in available contexts; recall will be skipped` and set the in-memory `memory.context_id` to `null`. Step 7's recall guard will see the `null` and skip the recall call (treated the same as `NO_MEMORY` being set). **Do not abort** the command.
-- **Multiple matches**: take the first. Log a one-line debug note `memory.context_id "<name>" matched N contexts; using first: <uuid>` so the maintainer can disambiguate later if needed.
-- **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped` and set the in-memory `memory.context_id` to `null` (same as the name-not-found path above).
+> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == <config value>.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `Gh-Issue-Driven-Dev` when their context is `gh-issue-driven-dev`).
+
+Edge cases (all set the in-session `memory.context_id` to `null` so step 7's guard skips recall):
+- **Name not found** (zero matches): log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
+- **Multiple matches** (≥2 contexts with the same name, case-insensitive): log `memory.context_id "<name>" is ambiguous (matched N contexts); recall will be skipped to avoid querying the wrong context — set context_id to a UUID directly to disambiguate`, set to `null`, do NOT abort. **Do not silently take the first match** — ambiguity is a configuration smell that the user should resolve, and "wrong context" is a worse failure mode than "no recall."
+- **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped`, set to `null`.
+- **Exactly one match**: take its `.id` as the resolved UUID, store in the in-session config.
+
+Operational notes:
 - **The resolved UUID is cached only in the in-session config** — do **not** write the resolved UUID (or the `null` sentinel) back to `~/.claude/gh-issue-driven-config.json`. The resolution happens fresh on every `/gh-issue-driven:start` invocation, which keeps the config file portable across machines and Kagura Memory installations.
+- **Honoring `memory.skip_on_failure`**: the resolution-failure paths above always set `null` and continue (treating resolution failure as "skip recall, not abort"), regardless of the `memory.skip_on_failure` config value. `memory.skip_on_failure` controls step 7's behavior when the **recall call itself** fails at runtime, not when resolution can't even produce a UUID. See step 7 for the runtime-error handling.
+- **`null` is the canonical "skip recall" sentinel** — it is the same value the resolution failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`. This avoids stringly-typed sentinels like `__unresolved__` that would require step 7 to know about magic literals.
 
 If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
-
-Note: `null` is the canonical "skip recall" sentinel — it is the same value the resolution failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`. This avoids stringly-typed sentinels like `__unresolved__` that would require step 7 to know about magic literals.
 
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
@@ -183,7 +189,14 @@ Otherwise:
 
 > **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a), `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
 
-Capture results as a list of `{summary, score}` pairs. If the tool errors at runtime, log a warning and continue (recall is best-effort) — proceed to step 8 with an empty result list. The skip path above already covered the "context_id couldn't be resolved" case, so by the time this step runs the `context_id` is a valid UUID; any error here is a runtime/network issue at recall time.
+Capture results as a list of `{summary, score}` pairs.
+
+**On runtime error from `recall`** (the tool errored, network failed, or the resolved UUID turned out to be invalid for some unexpected reason):
+
+- If `memory.skip_on_failure` is `true` (default): log a single warning `memory recall failed; continuing without recall results — <error summary>` and proceed to step 8 with an empty result list. This is the "fail-safe, recall is best-effort" path.
+- If `memory.skip_on_failure` is `false`: **abort the command** with the recall error printed in full. Save no state. The user opted into "if memory is broken, stop" by setting this flag, so honor it.
+
+The skip path at the top of this step already covered the "context_id couldn't be resolved" case (step 2a sets `null` and step 7 skips entirely without calling recall), so by the time the recall call runs, `context_id` is a valid UUID. Any runtime error here is a true network/server issue, not a configuration problem — and the user's `skip_on_failure` choice is the right signal for how to handle it.
 
 ### 8. Build the gate1 prompt block
 

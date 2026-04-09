@@ -28,15 +28,21 @@ What v0.1.1 minimal does NOT do (left for v0.1.2 / #19): no translation table, n
 
 ### `memory.context_id`
 
-Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
+Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). Name matching is **case-insensitive** (so `Gh-Issue-Driven-Dev` and `gh-issue-driven-dev` both resolve to the same context). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
 
-If the name is not found in the user's Kagura Memory contexts, recall is skipped silently for that session (log line emitted) — the rest of `/start` continues normally. Set `memory.skip_on_failure=false` to make recall failure abort the command instead.
+**Resolution failure paths** (name not found / multiple matches / list_contexts errors / kagura-memory not installed) all set the in-session value to `null` and **skip recall silently** — `memory.skip_on_failure` does NOT control these paths because they happen *before* the recall call. The rationale: a config that can't even produce a UUID is not "kagura-memory failed at runtime," it's "you don't have a usable memory setup yet" — fail-safe is the right call.
+
+`memory.skip_on_failure` controls the behavior when the **recall call itself** errors at runtime (the resolved UUID was valid, the network or server failed mid-call):
+- `true` (default): log the error and continue with empty recall results — `/start` proceeds normally
+- `false`: abort `/start` with the recall error — for users who treat broken memory as a hard failure
 
 The default `gh-issue-driven-dev` is a placeholder. Users with kagura-memory installed should change it to either:
 - The UUID of their preferred context, OR
-- The exact name of an existing context in their Kagura Memory
+- The exact name of an existing context in their Kagura Memory (case-insensitive match)
 
 Users without kagura-memory installed can ignore this field — recall is skipped automatically when the plugin is missing.
+
+**Multi-match disambiguation**: if two or more contexts share the same case-insensitive name, resolution sets the in-session value to `null` and skips recall (logging an "ambiguous context" warning). To resolve: set `memory.context_id` to the exact UUID of the context you want.
 
 ## Built-in defaults
 
