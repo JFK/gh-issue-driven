@@ -172,14 +172,15 @@ Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードでき�
 
 > Invoke `/claude-c-suite:ask` via the Skill tool, passing the prompt block built in step N as input.
 
-並列レビュアの場合：
+並列レビュアの場合 (gate2 で invoke する skill 数は `gate2.binary_gate` の設定で変わる):
 
-> In a single tool-call batch, invoke all four reviewer skills in parallel via the Skill tool: `/claude-c-suite:audit`, `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`.
+> In a single tool-call batch, invoke gate2 reviewer skills in parallel via the Skill tool. **デフォルト (advisor-only mode、`gate2.binary_gate: null`)**: 3 advisor skill — `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`。**`gate2.binary_gate` が skill 名 (例: `/claude-c-suite:audit` for plugin maintainers) に設定されている場合**: 4 skill — configured binary gate skill + 3 advisor。
 
 skill が見つからない場合の degrade：
-- レビュア missing → そのゲートスロットは `unknown`、警告を出して継続
-- `/audit` (または config の `gate2.binary_gate` で指定された skill) → デフォルトは `null` (advisor-only mode) なので無関係。設定された場合のみ、unavailable で `force` を要求
-- `kagura-memory` missing → recall と session-start/summary をスキップ
+- advisor reviewer missing → そのゲートスロットは `unknown`、警告を出して継続
+- binary gate skill missing (`gate2.binary_gate` 設定時のみ該当) → `unknown` 扱い、`force` で続行可
+- `gate2.binary_gate` が `null` (デフォルト) → binary gate なし、advisor-only mode、`force` 不要
+- `kagura-memory` missing → recall と session-start/summary をスキップ (`memory.context_id` resolution 失敗時は warning 1行を出す)
 
 `/gh-issue-driven:doctor` で何が入っているか確認できます。
 
@@ -246,7 +247,7 @@ skill が見つからない場合の degrade：
 
 - **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
 - **resume mode 無し** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — `/ship` が loop の途中で exit した場合 (test failure, 手動中断, silent_no_op)、再実行すると現在は resume せずに全 gate が再実行される。
-- **`memory.context_id` のデフォルトは placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — このリリースで実装) — `memory.context_id` は UUID または context name (case-insensitive、実行時に `list_contexts` で UUID 解決) のどちらも受け付けるようになった。デフォルト値は `gh-issue-driven-dev` という honest な plugin-named placeholder。kagura-memory を install しているユーザーは、自分の環境の有効な context 名 (case-insensitive match) または UUID に上書きすること。kagura-memory を使わないユーザーはこのフィールドを無視できる (recall は自動 skip)。Resolution failure (name not found / ambiguous / list_contexts errors) は recall を silently skip して `/start` は続行する。**現状 `/gh-issue-driven:doctor` が configured context_id の解決を validate しない**のは v0.1.2 の follow-up として追跡。
+- **`memory.context_id` のデフォルトは placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — このリリースで実装) — `memory.context_id` は UUID または context name (case-insensitive、実行時に `list_contexts` で UUID 解決) のどちらも受け付けるようになった。デフォルト値は `gh-issue-driven-dev` という honest な plugin-named placeholder。kagura-memory を install しているユーザーは、自分の環境の有効な context 名 (case-insensitive match) または UUID に上書きすること。kagura-memory を使わないユーザーはこのフィールドを無視できる (recall は自動 skip)。Resolution failure (name not found / ambiguous / list_contexts errors) は **warning を1行出して** recall をスキップし `/start` は続行する (warning があるので silent ではない)。**現状 `/gh-issue-driven:doctor` が configured context_id の解決を validate しない**のは v0.1.2 の follow-up として追跡。
 - **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない (v0.2.0+ で [#3](https://github.com/JFK/gh-issue-driven/issues/3) と一緒に対応予定)。
 - **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。v0.1.1 hardening tail の follow-up として filed。
 - **PR body の secret-like 値を自動検出しない** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — プラグインは commit message と diff context から PR body を生成する。v0.2.0 で secret-scan abort を追加予定。

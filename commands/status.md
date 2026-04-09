@@ -8,7 +8,9 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, produce the pretty-printed status block in Japanese — the section labels (`Issue`, `Branch`, `Phase`, `Gate1`, `Gate2`, `PR`, `Copilot Loop`, `Exit`, `Detection`, `Last polled`) stay English (they map directly to state JSON field names), but the prose around them, the silent_no_op hint footer, and the `all` mode footer line are localized.
+Load `lang` just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"` if the file is missing, unparseable, or doesn't set `lang`). status.md is read-only and short, so this is a minimal one-key read — no full deep-merge of all config defaults is needed for this command.
+
+When `lang == "ja"`, produce the pretty-printed status block in Japanese — the section labels (`Issue`, `Branch`, `Phase`, `Gate1`, `Gate2`, `PR`, `Copilot Loop`, `Exit`, `Detection`, `Last polled`) stay English (they map directly to state JSON field names), but the prose around them, the silent_no_op hint footer, and the `all` mode footer line are localized.
 
 What stays English regardless of `lang`:
 
@@ -59,10 +61,11 @@ Gate1   <verdict>  (via /<reviewer>[, escalated to /ceo])
         Full output: <summary_path>
 
 Gate2   <aggregate verdict>
-        - audit:    <pass|fail>
-        - cso:      <verdict>
-        - qa-lead:  <verdict>
-        - cto:      <verdict>
+        - audit:       <pass|fail|skipped>   ← `skipped` when gate2.binary_gate was null (advisor-only mode)
+        - binary_gate: <skill name or "(none)">  ← omit this line if state lacks the field (older state files)
+        - cso:         <verdict>
+        - qa-lead:     <verdict>
+        - cto:         <verdict>
         Full output: <summary_path>
 
 PR      <pr_url>  (#<number>, opened <relative time ago>)

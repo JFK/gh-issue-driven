@@ -173,14 +173,15 @@ This plugin invokes other plugins' slash commands as **skills** (via Claude Code
 
 > Invoke `/claude-c-suite:ask` via the Skill tool, passing the prompt block built in step N as input. Wait for the full markdown response before continuing.
 
-For parallel reviewers in gate2:
+For parallel reviewers in gate2 (the number of skills invoked depends on `gate2.binary_gate`):
 
-> In a single tool-call batch, invoke all four reviewer skills in parallel via the Skill tool: `/claude-c-suite:audit`, `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`.
+> In a single tool-call batch, invoke the gate2 reviewer skills in parallel via the Skill tool. **Default (advisor-only mode, `gate2.binary_gate: null`)**: 3 advisor skills — `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`. **When `gate2.binary_gate` is configured to a skill name** (e.g. `/claude-c-suite:audit` for plugin maintainers): 4 skills — the configured binary gate skill plus the 3 advisors.
 
 If a skill is not installed, the command degrades:
-- Missing reviewer → that gate slot becomes `unknown`, prints a warning, continues.
-- `/audit` (or any configured `gate2.binary_gate`) → only relevant if `gate2.binary_gate` is set; default is `null` (advisor-only mode).
-- Missing `kagura-memory` → recall and session-start/summary are skipped silently.
+- Missing advisor reviewer → that gate slot becomes `unknown`, prints a warning, continues.
+- Missing binary gate skill (only when `gate2.binary_gate` is set) → treat as `unknown`, require `force` to continue.
+- `gate2.binary_gate` is `null` (default) → no binary gate, advisor-only mode, no `force` required.
+- Missing `kagura-memory` → recall and session-start/summary are skipped (with a one-line warning when `memory.context_id` resolution fails).
 
 You can probe what's installed with `/gh-issue-driven:doctor`.
 
@@ -203,7 +204,7 @@ Key options:
 |---|---|---|
 | `default_branch` | `main` | The branch `start` and `ship` use as the base. |
 | `branch.type_label_map` | bug/fix/feature/... → fix/feat/... | How issue labels become branch type prefixes. |
-| `memory.context_id` | `kagura-dev` | Kagura Memory context for recall. |
+| `memory.context_id` | `gh-issue-driven-dev` | Kagura Memory context for recall. Accepts a UUID or a context name (resolved at runtime, case-insensitive). |
 | `gate1.primary` | `/claude-c-suite:ask` | First reviewer in the gate1 cascade. |
 | `gate1.fallback` | `/claude-c-suite:ceo` | Used when primary declines. |
 | `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
@@ -274,7 +275,7 @@ For each:
 
 - **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
 - **No resume mode** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — if `/ship` exits mid-loop (test failure, manual interrupt, silent_no_op), re-running it currently re-runs all gates from scratch instead of resuming where it left off.
-- **`memory.context_id` default is a placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — implemented in this release) — `memory.context_id` now accepts either a UUID or a context name (case-insensitive, resolved at runtime via `list_contexts`). The default value is `gh-issue-driven-dev`, an honest plugin-named placeholder. Users with kagura-memory installed should override it to either an actual context name (case-insensitive match against their existing contexts) or a UUID. Users without kagura-memory can ignore the field — recall is skipped automatically. Resolution failure (name not found, ambiguous, list_contexts errors) skips recall silently and continues `/start`. The current sharp edge is that **`/gh-issue-driven:doctor` does not yet validate that the configured context_id resolves successfully** — that's tracked as a v0.1.2 follow-up.
+- **`memory.context_id` default is a placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — implemented in this release) — `memory.context_id` now accepts either a UUID or a context name (case-insensitive, resolved at runtime via `list_contexts`). The default value is `gh-issue-driven-dev`, an honest plugin-named placeholder. Users with kagura-memory installed should override it to either an actual context name (case-insensitive match against their existing contexts) or a UUID. Users without kagura-memory can ignore the field — recall is skipped automatically. Resolution failure (name not found, ambiguous, list_contexts errors) skips recall **with a one-line warning** and continues `/start` — the warning tells the operator what happened so the failure isn't silent. The current sharp edge is that **`/gh-issue-driven:doctor` does not yet validate that the configured context_id resolves successfully** — that's tracked as a v0.1.2 follow-up.
 - **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (deferred to v0.2.0+ alongside [#3](https://github.com/JFK/gh-issue-driven/issues/3)).
 - **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync). Filed as a v0.1.1 hardening tail follow-up.
 - **No automated handling of secret-shaped values in PR bodies** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — the plugin generates PR bodies from commit messages and diff context. v0.2.0 will add a secret-scan abort.

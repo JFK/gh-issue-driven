@@ -18,7 +18,7 @@ The following MUST stay English regardless of `lang`:
 - File paths and `summary_path` values written to / read from the state JSON (e.g. `~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md`) — these are filesystem identifiers, not localized prose
 - Bash command output captured into variables (`gh pr view --json ...` results, etc.) — these are read as machine-shaped data, never localized
 
-When `lang == "ja"` AND step 5 builds the gate2 prompt block, append this line to the `## Your task` section in the prompt sent to all four reviewers, BEFORE the `## Verdict:` instruction:
+When `lang == "ja"` AND step 5 builds the gate2 prompt block, append this line to the `## Your task` section in the prompt sent to **all *invoked* gate2 reviewers** — the 3 advisors in the default advisor-only mode, plus the binary gate skill when `gate2.binary_gate` is configured (so 3 or 4 reviewers depending on config). The append happens BEFORE the `## Verdict:` instruction:
 
 ```
 Please respond in Japanese. The final `## Verdict:` line MUST stay English.
@@ -181,11 +181,13 @@ In either mode, if any **advisor** skill is not installed, mark its slot `unknow
 
 **Binary gate availability** (only when `gate2.binary_gate` is non-null): if the configured binary gate skill is unavailable at invocation time (not installed, errors out), treat the binary gate as `unknown` (not pass) and require `FORCE` to continue. This is the "binary gate is configured but the skill broke" path — distinct from the "binary gate is null by design" path which doesn't exercise the FORCE rule at all.
 
-### 7. Audit verdict — the hard gate (skipped in advisor-only mode)
+### 7. Binary gate verdict — the hard release gate (skipped in advisor-only mode)
+
+The state field is still named `gate2.audit` for backward compatibility with v0.1.0 state files, but the spec terminology in this section uses **"binary gate"** because the gate is now generic (any skill configured via `gate2.binary_gate`, not specifically `/claude-c-suite:audit`). When the binary gate is `/claude-c-suite:audit`, you can substitute "audit" for "binary gate" mentally; for any other configured skill, the same logic applies with that skill's name.
 
 **If `gate2.binary_gate` was `null` in step 6** (advisor-only mode): skip this step entirely. Set `AUDIT_VERDICT = "skipped"` and proceed to step 8. The binary gate concept does not apply in this run; the gate2 verdict is determined purely by the advisor aggregate in step 8.
 
-**Otherwise** (the binary gate skill was invoked in step 6 and `AUDIT_OUT` is populated):
+**Otherwise** (the binary gate skill was invoked in step 6 and `AUDIT_OUT` is populated). Let `BINARY_GATE_NAME` = the value of `gate2.binary_gate` from config (e.g. `/claude-c-suite:audit` for plugin maintainers, or any other configured skill name).
 
 Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
 
@@ -197,14 +199,14 @@ Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
    AND no structured verdict line was found, treat as `fail`. (A clean structured `pass` line is
    never overridden by a downstream error after the fact.)
 3. **Heuristic fallback** — only runs when no structured line and no skill error. Emit a single
-   warn-level log line `verdict_parser=heuristic gate=audit reason=no_structured_line` so the
+   warn-level log line `verdict_parser=heuristic gate=binary_gate skill=<BINARY_GATE_NAME> reason=no_structured_line` so the
    soft-deprecation can be tracked. Tokens `BLOCKER`, `failed conformance`, `MUST FIX` in the
    markdown → `fail`. Otherwise `pass`.
 
-**If `AUDIT_VERDICT == fail`**: abort PR creation entirely. Even with `FORCE`. Save the audit output to the gate2 markdown file. Persist `gate2.audit=fail, gate2.verdict=red` in the state. Print:
+**If `AUDIT_VERDICT == fail`**: abort PR creation entirely. Even with `FORCE`. Save the binary gate output to the gate2 markdown file. Persist `gate2.audit=fail, gate2.binary_gate=<BINARY_GATE_NAME>, gate2.verdict=red` in the state. Print:
 
 ```
-GATE2 BLOCKED: /audit returned fail
+GATE2 BLOCKED: binary gate <BINARY_GATE_NAME> returned fail
 
 <first 40 lines of AUDIT_OUT>
 
