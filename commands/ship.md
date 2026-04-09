@@ -36,16 +36,16 @@ if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
 fi
 ```
 
-#### gh CLI version check (warn-only)
+#### gh CLI version check (warn-only, runs unconditionally)
 
-If `copilot.enabled` is true (default), check `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op — the loop still works if the repo has **Automatic Copilot code review** enabled (see `/gh-issue-driven:doctor`), but operators on older `gh` without auto-review will see the loop skip.
+This check runs as part of pre-flight, before configuration is loaded — so it cannot read `copilot.enabled` and intentionally always runs. It compares `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op. The warning is **harmless when copilot is disabled** (the loop won't run anyway), so emitting it unconditionally is the simpler design vs deferring to step 2.
 
 ```bash
 GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {print $3}')
 if [ -n "$GH_VER" ]; then
   if ! printf '%s\n%s\n' '2.88.0' "$GH_VER" | sort -V -C; then
     echo "warning: gh CLI $GH_VER is older than 2.88.0 — manual Copilot reviewer add will silently no-op."
-    echo "         The loop will still work IF this repo has Automatic Copilot code review enabled."
+    echo "         If copilot is enabled, the loop will still work IF this repo has Automatic Copilot code review enabled."
     echo "         Run /gh-issue-driven:doctor to confirm setup, or upgrade gh: https://cli.github.com/"
   fi
 fi
@@ -310,7 +310,7 @@ if [ "$COPILOT_QUEUED" = "false" ]; then
 fi
 ```
 
-> **JQ filter sync**: the unified `jq -r` expression above (between `# JQ_DETECT_FILTER_BEGIN` and `# JQ_DETECT_FILTER_END` sentinels) is the body of the `detect` function in `tests/copilot-detection.jq`. They are intentionally byte-equivalent. CI enforces this: `tests/jq-sync-check.sh` extracts the inline filter via the sentinels, runs both filters against every fixture, and asserts identical output. When you change one, update the other in the same commit — CI will fail loud otherwise.
+> **JQ filter sync**: the unified `jq -r` expression above (between `# JQ_DETECT_FILTER_BEGIN` and `# JQ_DETECT_FILTER_END` sentinels) is **semantically equivalent** to the body of the `detect` function in `tests/copilot-detection.jq` — meaning both produce identical output across every fixture in `tests/fixtures/copilot-detection/`. They are NOT byte-identical: the inline form uses `any(test(...))` (predicate form) while the canonical form uses `map(test(...)) | any` (mapped form). These are equivalent in jq but not source-identical. CI enforces the semantic equivalence: `tests/jq-sync-check.sh` extracts the inline filter via the sentinels, runs both filters against every fixture, and asserts identical output strings. When you change one, update the other in the same commit — CI will fail loud otherwise.
 
 If `COPILOT_QUEUED` is `false`:
 - Skip step 14 entirely (the polling loop has nothing to wait for).

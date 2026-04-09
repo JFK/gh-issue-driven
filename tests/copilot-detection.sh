@@ -54,10 +54,11 @@ for fixture in "$FIXTURES_DIR"/*.json; do
   fi
 
   # Strip _fixture_meta before piping to the canonical filter — the production
-  # input never carries it.
-  result=$(jq 'del(._fixture_meta)' "$fixture" | jq -f "$JQ_FILTER")
-  got_queued=$(echo "$result" | jq -r .queued)
-  got_method=$(echo "$result" | jq -r .detection_method)
+  # input never carries it. Single pipeline outputs both fields space-separated
+  # so `read` can split them; avoids the `echo "$result" | jq` pattern entirely.
+  read -r got_queued got_method < <(jq 'del(._fixture_meta)' "$fixture" \
+    | jq -rf "$JQ_FILTER" \
+    | jq -r '"\(.queued) \(.detection_method)"')
 
   if [ "$got_queued" = "$exp_queued" ] && [ "$got_method" = "$exp_method" ]; then
     printf 'PASS %-20s queued=%s method=%s\n' "$name" "$got_queued" "$got_method"

@@ -18,9 +18,17 @@
 #
 #   { "queued": true|false, "detection_method": "requested_reviewers"|"latest_reviews"|"neither" }
 #
-# Sync requirement: the inline `jq -e` expressions in commands/ship.md step 13 must
-# stay equivalent to this filter. When you change one, change the other in the same
-# commit. (CI does not currently diff them — that's a follow-up.)
+# Sync requirement: the unified `jq -r` expression in commands/ship.md step 13
+# (between `# JQ_DETECT_FILTER_BEGIN` and `# JQ_DETECT_FILTER_END` sentinels) must
+# stay semantically equivalent to this `detect` function — both must produce identical
+# output across every fixture in tests/fixtures/copilot-detection/. They are NOT
+# source-identical: the inline form uses `any(test(...))` while this canonical form
+# uses `map(test(...)) | any`. These are equivalent in jq but not byte-identical.
+#
+# CI enforces semantic equivalence: tests/jq-sync-check.sh extracts the inline
+# filter via the sentinels, runs both filters against every fixture, and asserts
+# identical output strings. When you change one, change the other in the same
+# commit — CI will fail loud otherwise.
 
 def detect:
   . as $pr

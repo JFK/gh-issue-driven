@@ -73,11 +73,11 @@ for fixture in "$FIXTURES_DIR"/*.json; do
   TOTAL=$((TOTAL + 1))
 
   # The fixture carries _fixture_meta for the other test runner. Strip it
-  # so the production-shape input is what each filter sees.
-  STRIPPED=$(jq 'del(._fixture_meta)' "$fixture")
-
-  inline_result=$(echo "$STRIPPED" | jq -r "$INLINE_PROGRAM")
-  canonical_result=$(echo "$STRIPPED" | jq -r -f "$CANONICAL_JQ" | jq -r .detection_method)
+  # via direct file → jq pipelines so the production-shape input is what
+  # each filter sees. Avoids `echo "$VAR" | jq` (brittle on escape handling
+  # and on JSON values that look like flags).
+  inline_result=$(jq 'del(._fixture_meta)' "$fixture" | jq -r "$INLINE_PROGRAM")
+  canonical_result=$(jq 'del(._fixture_meta)' "$fixture" | jq -rf "$CANONICAL_JQ" | jq -r .detection_method)
 
   if [ "$inline_result" = "$canonical_result" ]; then
     printf 'SYNC %-20s inline=%s canonical=%s\n' "$name" "$inline_result" "$canonical_result"
