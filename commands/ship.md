@@ -154,28 +154,19 @@ the last `## Verdict:` line is what counts.
 
 Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
 
-**If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the 3 advisors:
+First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
 
-> **In a single tool-call batch, invoke the 3 advisor skills in parallel via the Skill tool**:
-> - `/claude-c-suite:cso` (or whatever is configured in `gate2.advisors[0]`)
-> - `/claude-c-suite:qa-lead` (or `gate2.advisors[1]`)
-> - `/claude-c-suite:cto` (or `gate2.advisors[2]`)
->
-> Each receives the same gate2 prompt block from step 5. Do not proceed until all 3 return.
+**If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the advisors from `ADVISORS`:
 
-Capture each output as `CSO_OUT`, `QA_OUT`, `CTO_OUT`. `AUDIT_OUT` stays null.
+> **In a single tool-call batch, invoke each advisor skill in `ADVISORS` in parallel via the Skill tool.** With the default config, this is 3 skills (`cso`, `qa-lead`, `cto`); with a custom `gate2.advisors`, this is whatever the operator configured. Each advisor receives the same gate2 prompt block from step 5. Do not proceed until all advisors return.
+
+Capture each advisor's output by its position in `ADVISORS`: `ADVISOR_OUTS[0]`, `ADVISOR_OUTS[1]`, etc. For convenience in the rest of this command (which historically referenced `CSO_OUT`/`QA_OUT`/`CTO_OUT`), the default-config slots map as: `CSO_OUT = ADVISOR_OUTS[0]`, `QA_OUT = ADVISOR_OUTS[1]`, `CTO_OUT = ADVISOR_OUTS[2]`. Custom advisor configurations should adapt this mapping. `AUDIT_OUT` stays null.
 
 **Otherwise** (`gate2.binary_gate` is a non-null skill name, e.g. `"/claude-c-suite:audit"` for plugin maintainers who maintain claude-c-suite-plugin itself):
 
-> **In a single tool-call batch, invoke all 4 reviewer skills in parallel via the Skill tool**:
-> - `<gate2.binary_gate>` (e.g. `/claude-c-suite:audit`)
-> - `/claude-c-suite:cso`
-> - `/claude-c-suite:qa-lead`
-> - `/claude-c-suite:cto`
->
-> Each receives the same gate2 prompt block from step 5. Do not proceed until all four return.
+> **In a single tool-call batch, invoke the binary gate skill PLUS each advisor skill in `ADVISORS` in parallel via the Skill tool.** The binary gate skill is `gate2.binary_gate` from config (e.g. `/claude-c-suite:audit`). The advisors are still iterated from `ADVISORS` (NOT hardcoded) so that operators who customize `gate2.advisors` get their custom list invoked alongside the binary gate. With the default config, this is `1 binary gate + 3 advisors = 4 skills`; with custom `gate2.advisors`, the count depends on the operator's list. Each receives the same gate2 prompt block from step 5. Do not proceed until all skills return.
 
-Capture each output as `AUDIT_OUT`, `CSO_OUT`, `QA_OUT`, `CTO_OUT`.
+Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS[0..]` for each advisor. The same default-config alias mapping applies (`CSO_OUT = ADVISOR_OUTS[0]`, etc.).
 
 In either mode, if any **advisor** skill is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return.
 
@@ -265,7 +256,7 @@ Update the state file:
 
 ```json
 "gate2": {
-  "audit": "pass | fail | skipped",
+  "audit": "pass | fail | skipped | unknown",
   "binary_gate": "<skill name from config, or null in advisor-only mode>",
   "cso": "<verdict>",
   "qa_lead": "<verdict>",
@@ -277,7 +268,14 @@ Update the state file:
 "phase": "gated"
 ```
 
-The `audit` field is `"skipped"` when `gate2.binary_gate` was null (advisor-only mode). The `binary_gate` field records which skill was configured (or `null` for advisor-only), so `/gh-issue-driven:status` can render the right summary.
+The `audit` field has **four** possible values:
+
+- `"pass"` — binary gate ran cleanly and approved (or heuristic derived `pass`)
+- `"fail"` — binary gate ran cleanly and rejected (or heuristic derived `fail`). State is **not normally persisted** at this value because step 7's hard-abort path exits before reaching step 10. Only present in state files written by older ship.md versions or if a future override path allows it.
+- `"skipped"` — `gate2.binary_gate` was `null` (advisor-only mode, the v0.1.1 default). The binary gate slot was never invoked.
+- `"unknown"` — `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable AND the operator passed `FORCE` to continue past step 7's "AUDIT_VERDICT == unknown" abort branch. Persisted as a diagnostic so post-mortem can identify "this PR was force-shipped without binary gate validation." See `commands/status.md` for the matching value semantics in the pretty-print template.
+
+The `binary_gate` field records which skill was configured (or `null` for advisor-only), so `/gh-issue-driven:status` can render the right summary alongside the `audit` value.
 
 Write `<branch-flat>.gate2.md` with each reviewer's full output under section headers `## <binary_gate skill name>` (omit the section entirely in advisor-only mode), `## /claude-c-suite:cso`, `## /claude-c-suite:qa-lead`, `## /claude-c-suite:cto`.
 

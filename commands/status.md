@@ -61,7 +61,7 @@ Gate1   <verdict>  (via /<reviewer>[, escalated to /ceo])
         Full output: <summary_path>
 
 Gate2   <aggregate verdict>
-        - audit:       <pass|fail|skipped>   ← `skipped` when gate2.binary_gate was null (advisor-only mode)
+        - audit:       <pass|fail|skipped|unknown>   ← see audit value semantics below
         - binary_gate: <skill name or "(none)">  ← omit this line if state lacks the field (older state files)
         - cso:         <verdict>
         - qa-lead:     <verdict>
@@ -79,6 +79,19 @@ Copilot Loop <loops_run>/<max_loops>, last state: <last_state>
 ```
 
 The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`. When `exit_reason == "silent_no_op"`, also append a one-line hint pointing at `/gh-issue-driven:doctor` so the operator can confirm Mode A or upgrade gh.
+
+#### `gate2.audit` value semantics
+
+The `audit` field in the persisted state can take **four** values:
+
+| Value | Meaning |
+|---|---|
+| `pass` | Binary gate skill ran cleanly and returned `## Verdict: pass` (or the heuristic derived `pass` from the markdown body). The gate2 binary check succeeded. |
+| `fail` | Binary gate skill ran cleanly and returned `## Verdict: fail` (or the heuristic derived `fail` from BLOCKER/MUST FIX tokens). **Hard release block** — even FORCE cannot override. State is persisted only if FORCE'd past step 7's hard-abort path (which it never is, since `fail` is unconditional abort). |
+| `skipped` | `gate2.binary_gate` was `null` (advisor-only mode, the v0.1.1 default). The binary gate slot was never invoked. The gate2 verdict is determined purely by the advisor aggregate. This is the common case for any non-claude-c-suite-plugin user. |
+| `unknown` | `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable at invocation time AND the operator passed FORCE to continue past step 7's "AUDIT_VERDICT == unknown" abort branch. The binary gate didn't actually validate the PR — the operator overrode it because they trust the change. Persisted as a diagnostic so post-mortem can identify "this PR was force-shipped without binary gate validation." If you see `unknown` in production state, it usually means the binary gate skill had a bug or wasn't installed. Investigate. |
+
+If the state file lacks the `audit` field entirely (older state files written before the binary gate refactor), render as `(absent)` and don't fail.
 
 For the live PR state, run:
 
