@@ -33,6 +33,7 @@ You are starting work on a GitHub issue. Read each step carefully — the order 
   - Bare number `142` → use current repo (resolve via `gh repo view --json nameWithOwner -q .nameWithOwner`)
   - URL form `https://github.com/foo/bar/issues/142` → parse owner, repo, number
   - Short form `foo/bar#142` → parse the same way
+- Set `REPO_FULL_NAME` from the normalized `<owner/repo>`. This is the canonical binding point for the variable; downstream steps (state file, recap) read it from here.
 - Set booleans from remaining tokens:
   - `DRY_RUN=true` if `dry-run` is present
   - `FORCE=true` if `force` is present
@@ -100,10 +101,10 @@ Unless `NO_MEMORY` is set:
 
 ```bash
 gh issue view <issue_number> --repo <owner/repo> \
-  --json number,title,body,url,labels,author,repository
+  --json number,title,body,url,labels,author
 ```
 
-Parse the returned JSON into local variables: `ISSUE_NUM`, `ISSUE_TITLE`, `ISSUE_BODY`, `ISSUE_URL`, `ISSUE_LABELS` (array of label names), `ISSUE_AUTHOR`, `REPO_FULL_NAME`.
+Parse the returned JSON into local variables: `ISSUE_NUM`, `ISSUE_TITLE`, `ISSUE_BODY`, `ISSUE_URL`, `ISSUE_LABELS` (array of label names), `ISSUE_AUTHOR`. (`REPO_FULL_NAME` is already bound in step 1 — `repository` is **not** a valid `gh issue view --json` field.)
 
 If the API returns a 404, abort with `issue #<num> not found in <repo>`.
 
