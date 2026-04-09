@@ -1,5 +1,5 @@
 ---
-description: Diagnose the gh-issue-driven environment — verifies gh CLI auth, required plugins, git repo, configuration, and cache directory. Read-only.
+description: Diagnose the gh-issue-driven environment — verifies gh CLI auth, required plugins, git repo, configuration, and cache directory. Mostly read-only; the only mutation is the bounded Copilot setup confirmation cache (see Trust boundary).
 arguments:
   - name: input
     description: "Optional: 'verbose' for full output, 'fix' to print 'try this' hints next to failures (never auto-remediates)."
@@ -8,9 +8,11 @@ arguments:
 
 ## Trust boundary
 
-This command is **mostly read-only**. It must not modify any file outside its **single permitted target**:
+This command is **mostly read-only**. It must not modify any file outside its **single permitted file target**:
 
-- `~/.claude/cache/gh-issue-driven/<repo-flat>.copilot-setup.json` — the bounded confirmation cache for the "Copilot review setup" check below. Permitted actions on this single file: **create, refresh (atomic temp + mv), and delete** — and nothing else. The check uses the AskUserQuestion tool to confirm Mode A status; on "Yes" it refreshes the cache, on "No, Mode B" it deletes the cache, on "Skip" it does neither. No other section of doctor writes anywhere.
+- `~/.claude/cache/gh-issue-driven/<repo-flat>.copilot-setup.json` — the bounded confirmation cache for the "Copilot review setup" check below. Permitted actions on this single file: **create, refresh (atomic temp + mv), and delete** — and nothing else. The check uses the AskUserQuestion tool to confirm Mode A status; on "Yes" it refreshes the cache, on "No, Mode B" it deletes the cache, on "Skip" it does neither. No other section of doctor writes file content anywhere.
+
+The single permitted file target requires its parent directory `~/.claude/cache/gh-issue-driven/` to exist. doctor may **create that parent directory** via `mkdir -p` as a precondition for the permitted file actions. The cache directory writable check at step 6 below is the canonical place where this `mkdir -p` runs. No other directory creation is permitted anywhere in doctor.
 
 It must not install anything, change git state, or call any non-read-only tool. Print only `set` / `unset` for token-shaped environment variables — never echo their values.
 
@@ -81,7 +83,9 @@ The 7-day TTL is a fixed const in this command, not a config knob — re-confirm
 
 #### Check logic
 
-Read `copilot.skip_setup_prompt` from config. If true, print one line `✅ Copilot setup: prompt skipped (copilot.skip_setup_prompt=true)` and skip to the gh version check at the bottom of this section.
+Load the effective configuration just-in-time for this section: read `~/.claude/gh-issue-driven-config.json` if it exists and parses cleanly, then deep-merge user values over the built-in defaults documented in `/gh-issue-driven:config`. If the file is absent or unparseable, use the defaults silently — the broader Configuration file health check at step 11 (informational) will surface the parse error separately. The just-in-time load is necessary because this Copilot setup section runs in the Required-checks zone, **before** step 11; the two reads do not conflict because step 11 is informational and never blocks.
+
+From the merged config, read `copilot.skip_setup_prompt` (default `false`). If true, print one line `✅ Copilot setup: prompt skipped (copilot.skip_setup_prompt=true)` and skip to the gh version check at the bottom of this section.
 
 Otherwise:
 
@@ -175,7 +179,7 @@ Otherwise:
    ```
    Warn if empty.
 
-6. **Cache directory writable**
+6. **Cache directory writable** — this is the canonical place where the trust-boundary-permitted `mkdir -p` runs. The cache directory is intrinsic to gh-issue-driven (it holds state files, gate1/gate2 markdowns, and the Copilot setup confirmation cache from the section above), so doctor creates it on first run rather than requiring the user to set it up manually.
    ```bash
    mkdir -p ~/.claude/cache/gh-issue-driven && test -w ~/.claude/cache/gh-issue-driven
    ```
@@ -249,4 +253,4 @@ If `verbose` flag is set, also dump the effective configuration (deep-merged use
 
 ---
 
-> ⚠️ **Read-only diagnostic**: This command never modifies anything. The `fix` flag only adds suggested commands to the output — you must run them yourself.
+> ⚠️ **Mostly read-only diagnostic**: doctor's only mutations are (a) the bounded Copilot setup confirmation cache file declared in the Trust boundary at the top of this command, and (b) `mkdir -p ~/.claude/cache/gh-issue-driven` as a precondition for that cache file (also covered by the Trust boundary). It never installs anything, never touches git state, never edits source files, and never writes outside the plugin's own cache directory. The `fix` flag only adds suggested commands to the output — you must run them yourself.

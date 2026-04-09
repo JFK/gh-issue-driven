@@ -299,6 +299,10 @@ gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 # real timing default — and it is wrong for slow-Mode-A repos. See issue #23 for the
 # architectural fix that retires step 13's bounded wait entirely and lets step 14's
 # polling loop detect silent_no_op naturally.
+#
+# TODO(#23): this whole DEADLINE/while/break block is the false-positive surface.
+# When #23 lands, replace it with a single fire-and-forget gh pr edit and rely on
+# step 14's polling loop to detect silent_no_op via "no Copilot activity after N polls".
 DEADLINE=$(( $(date +%s) + VERIFY_WAIT_SEC ))
 COPILOT_QUEUED=false
 DETECTION_METHOD="neither"
