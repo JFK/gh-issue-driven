@@ -1,5 +1,7 @@
 # gh-issue-driven
 
+> ⚠️ **Alpha (v0.1.x)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end (PR #15 was merged via this plugin reviewing itself), but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
+
 > **Two-phase orchestrator for GitHub-issue-driven development with multi-reviewer pre-PR gates and a Copilot review loop.**
 
 `gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable workflow:
@@ -234,6 +236,21 @@ For each:
 5. `/gh-issue-driven:ship dry-run`
 6. `/gh-issue-driven:ship`
 7. `/gh-issue-driven:status`
+
+---
+
+## Limitations
+
+`gh-issue-driven` is alpha software (v0.1.x). The orchestrated flow works end-to-end on real PRs (the plugin has been used to ship its own PRs against `JFK/gh-issue-driven`), but the following known sharp edges exist as of v0.1.1. None lose data or corrupt state, but they affect the operator experience:
+
+- **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
+- **No resume mode** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — if `/ship` exits mid-loop (test failure, manual interrupt, silent_no_op), re-running it currently re-runs all gates from scratch instead of resuming where it left off.
+- **`memory.context_id` only accepts UUIDs** ([#12](https://github.com/JFK/gh-issue-driven/issues/12)) — the default config has a placeholder context ID; users with kagura-memory installed must edit their config with the correct UUID until name resolution lands.
+- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (deferred to v0.2.0+ alongside [#3](https://github.com/JFK/gh-issue-driven/issues/3)).
+- **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync). Filed as a v0.1.1 hardening tail follow-up.
+- **No automated handling of secret-shaped values in PR bodies** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — the plugin generates PR bodies from commit messages and diff context. v0.2.0 will add a secret-scan abort.
+
+For the full list of known issues, see the [v0.1.1](https://github.com/JFK/gh-issue-driven/milestone/1), [v0.1.2](https://github.com/JFK/gh-issue-driven/milestone/4), and [v0.2.0](https://github.com/JFK/gh-issue-driven/milestone/2) milestones.
 
 ---
 
