@@ -23,9 +23,20 @@
 #   これを有効にすると、Copilot レビューループが gh CLI のバージョンに依存せず動く。
 #   有効化しない場合は gh CLI >= 2.88.0 が必要 (下記「必要なバージョン」参照)。
 
-# Claude Code セッション内:
+# Claude Code セッション内 — プラグイン install:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
+
+# 推奨 companion プラグイン (無くても degrade して動作):
+/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 レビュア
+/plugin install claude-c-suite@claude-c-suite-plugin
+
+/plugin marketplace add JFK/memory-cloud             # session-start/summary + recall
+/plugin install kagura-memory@memory-cloud
+
+# Optional (v0.2 の深掘りレビュー用):
+/plugin marketplace add JFK/claude-phd-panel-plugin
+/plugin install claude-phd-panel@claude-phd-panel-plugin
 
 # 任意のリポジトリで:
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)

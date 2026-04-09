@@ -23,9 +23,20 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 #   This makes the Copilot review loop work on any gh CLI version.
 #   Without it, you need gh CLI >= 2.88.0 (see Requirements below).
 
-# In any Claude Code session:
+# In any Claude Code session — install the plugin:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
+
+# Recommended companion plugins (gracefully degrade if missing):
+/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 reviewers
+/plugin install claude-c-suite@claude-c-suite-plugin
+
+/plugin marketplace add JFK/memory-cloud             # session-start/summary + recall
+/plugin install kagura-memory@memory-cloud
+
+# Optional (reserved for v0.2 deep-review modes):
+/plugin marketplace add JFK/claude-phd-panel-plugin
+/plugin install claude-phd-panel@claude-phd-panel-plugin
 
 # In a repo:
 /gh-issue-driven:doctor          # one-time environment check (will prompt to confirm Step 0)

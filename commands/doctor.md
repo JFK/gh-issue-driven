@@ -188,14 +188,31 @@ Otherwise:
 7. **Reviewer plugin: `claude-c-suite`**
    - Probe: search for any of `~/.claude/plugins/cache/claude-c-suite*` (glob), or attempt a no-op invocation of the Skill tool with `/claude-c-suite:ask` and detect "skill not found".
    - Warn if missing → `gate1/gate2 will degrade to advisory-only`.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add JFK/claude-c-suite-plugin
+             /plugin install claude-c-suite@claude-c-suite-plugin
+     ```
 
 8. **Reviewer plugin: `claude-phd-panel`** (optional but recommended for v0.2 features)
    - Probe via plugin cache glob.
    - Warn if missing — does not block v0.1.0 functionality.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add JFK/claude-phd-panel-plugin
+             /plugin install claude-phd-panel@claude-phd-panel-plugin
+     ```
 
 9. **Memory plugin: `kagura-memory`**
    - Probe: check if the `mcp__kagura-memory__recall` tool is callable, OR glob `~/.claude/plugins/cache/*kagura-memory*`.
    - Warn if missing → `recall and session-start/summary will be skipped`.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add JFK/memory-cloud
+             /plugin install kagura-memory@memory-cloud
+     ```
+
+> The `<plugin>@<marketplace>` syntax is what `/plugin install` expects when installing from an external marketplace. If the exact form differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 
