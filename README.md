@@ -8,7 +8,7 @@
 
 1. **`/gh-issue-driven:start <issue>`** — fetch the issue, recall related past work from Kagura Memory, run a **gate1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation.
 2. _(you write the code)_
-3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (audit + cso + qa-lead + cto), create the PR, and drive a **GitHub Copilot review loop** of up to 5 iterations until the PR is approved or no actionable feedback remains.
+3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate` for plugin maintainers who want a hard `pass`/`fail` check), create the PR, and drive a **GitHub Copilot review loop** of up to 5 iterations until the PR is approved or no actionable feedback remains.
 
 The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary`, so each issue's learnings get persisted for future recall.
 

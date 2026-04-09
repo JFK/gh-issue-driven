@@ -8,7 +8,7 @@
 
 1. **`/gh-issue-driven:start <issue>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate1**（設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション）を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。
 2. _（あなたがコードを書く）_
-3. **`/gh-issue-driven:ship`** — **gate2**（audit + cso + qa-lead + cto を並列実行）、PR 作成、**GitHub Copilot レビューループ**を最大5回まで自動実行（PR が approve されるか、対応すべき fb がなくなるまで）。
+3. **`/gh-issue-driven:ship`** — **gate2**（デフォルトは `cso` + `qa-lead` + `cto` の advisor 並列実行。プラグインメンテナは `gate2.binary_gate` で optional な hard `pass`/`fail` バイナリゲートを追加可能）、PR 作成、**GitHub Copilot レビューループ**を最大5回まで自動実行（PR が approve されるか、対応すべき fb がなくなるまで）。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、issue ごとの学びが永続化されます。
 

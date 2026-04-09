@@ -194,16 +194,15 @@ Determine `AUDIT_VERDICT` from `AUDIT_OUT` in this priority order:
 1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching
    `^\s*##\s*Verdict:\s*(pass|fail)\b` (case-insensitive). If one or more match, take the **LAST**
    occurrence (last-wins), lowercase, and use it. Trailing punctuation is tolerated; case is
-   normalized via `.lower()`.
+   normalized via `.lower()`. **Only this path produces the hard-block `fail` value.**
 2. **Skill error signal**: if the Skill tool returned an error/non-zero indication for the binary gate skill
-   AND no structured verdict line was found, treat as `fail`. (A clean structured `pass` line is
-   never overridden by a downstream error after the fact.)
+   AND no structured verdict line was found, set `AUDIT_VERDICT = "unknown"`. **Do NOT collapse this into `fail`** — a broken gate is "no signal", not a "fail" signal. This matches step 6's "binary gate availability" rule, which treats an unavailable/errored binary gate as `unknown` and allows `FORCE` to override. (A clean structured `pass` line is never overridden by a downstream error after the fact.)
 3. **Heuristic fallback** — only runs when no structured line and no skill error. Emit a single
    warn-level log line `verdict_parser=heuristic gate=binary_gate skill=<BINARY_GATE_NAME> reason=no_structured_line` so the
    soft-deprecation can be tracked. Tokens `BLOCKER`, `failed conformance`, `MUST FIX` in the
-   markdown → `fail`. Otherwise `pass`.
+   markdown → `fail`. Otherwise `pass`. (Note: heuristic-derived `fail` IS hard-blocking — same treatment as structured `fail` — because the heuristic is intended as a temporary deprecation surface, not a softer signal. Only the **skill-error-without-output** path is `unknown`.)
 
-**If `AUDIT_VERDICT == fail`**: abort PR creation entirely. Even with `FORCE`. Save the binary gate output to the gate2 markdown file. Persist `gate2.audit=fail, gate2.binary_gate=<BINARY_GATE_NAME>, gate2.verdict=red` in the state. Print:
+**If `AUDIT_VERDICT == fail`** (from path 1 or path 3): abort PR creation entirely. Even with `FORCE`. Save the binary gate output to the gate2 markdown file. Persist `gate2.audit=fail, gate2.binary_gate=<BINARY_GATE_NAME>, gate2.verdict=red` in the state. Print:
 
 ```
 GATE2 BLOCKED: binary gate <BINARY_GATE_NAME> returned fail
@@ -214,6 +213,21 @@ Fix the conformance failures and re-run /gh-issue-driven:ship.
 ```
 
 Then exit. Do not push, do not create the PR.
+
+**If `AUDIT_VERDICT == "unknown"`** (from path 2 — skill error / unavailable): defer to step 6's binary gate availability rule. The operator must pass `FORCE` to continue. Without `FORCE`, abort with:
+
+```
+GATE2 BLOCKED: binary gate <BINARY_GATE_NAME> errored or was unavailable, no verdict produced
+
+<first 40 lines of AUDIT_OUT (or "(no output captured)" if the skill failed before producing any)>
+
+The binary gate is configured (gate2.binary_gate=<BINARY_GATE_NAME>) but did not return a usable
+verdict. This could be a transient skill failure or a missing dependency. Re-run with `force` to
+override the binary gate check, OR set gate2.binary_gate=null in your config to switch to
+advisor-only mode permanently.
+```
+
+Then exit (without `FORCE`) or continue past step 7 with a loud warning (with `FORCE`).
 
 ### 8. Advisor aggregation
 
