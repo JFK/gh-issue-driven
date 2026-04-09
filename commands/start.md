@@ -16,8 +16,9 @@ Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, pro
 The following MUST stay English regardless of `lang`:
 
 - PR title/body, commit messages, branch names (durable artifacts — Layer A)
-- `## Verdict:` lines and tokens `green|yellow|red|decline|pass|fail` (parser contract — Layer C)
+- `## Verdict:` line and tokens `green|yellow|red|decline` — these are the only tokens gate1 reviewers emit (`pass|fail` are gate2-only and live in `ship.md`'s parallel section) (parser contract — Layer C)
 - `exit_reason` enum values, `detection_method` enum values, `phase` enum values, any state file JSON values (parser contract — Layer C)
+- Bash command output captured into variables (`gh issue view --json` results, `gh repo view --json` results, etc.) — these are read as machine-shaped data, never localized
 
 When `lang == "ja"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include this line as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction:
 
@@ -80,12 +81,14 @@ Resolution procedure (only when `NO_MEMORY` is not set AND the value is a name):
 > **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find the first context where `.name == <config value>` (case-sensitive exact match). Take its `.id` field as the resolved UUID.
 
 Edge cases:
-- **Name not found**: log a single warning `memory.context_id "<name>" not found in available contexts; recall will be skipped` and set the in-memory `memory.context_id` to a sentinel `__unresolved__`. Step 7's recall will see this sentinel and skip the recall call (treated the same as `skip_on_failure`). **Do not abort** the command.
+- **Name not found**: log a single warning `memory.context_id "<name>" not found in available contexts; recall will be skipped` and set the in-memory `memory.context_id` to `null`. Step 7's recall guard will see the `null` and skip the recall call (treated the same as `NO_MEMORY` being set). **Do not abort** the command.
 - **Multiple matches**: take the first. Log a one-line debug note `memory.context_id "<name>" matched N contexts; using first: <uuid>` so the maintainer can disambiguate later if needed.
-- **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped` and set the sentinel as above.
-- **The resolved UUID is cached only in the in-session config** — do **not** write the resolved UUID back to `~/.claude/gh-issue-driven-config.json`. The resolution happens fresh on every `/gh-issue-driven:start` invocation, which keeps the config file portable across machines and Kagura Memory installations.
+- **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped` and set the in-memory `memory.context_id` to `null` (same as the name-not-found path above).
+- **The resolved UUID is cached only in the in-session config** — do **not** write the resolved UUID (or the `null` sentinel) back to `~/.claude/gh-issue-driven-config.json`. The resolution happens fresh on every `/gh-issue-driven:start` invocation, which keeps the config file portable across machines and Kagura Memory installations.
 
 If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
+
+Note: `null` is the canonical "skip recall" sentinel — it is the same value the resolution failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`. This avoids stringly-typed sentinels like `__unresolved__` that would require step 7 to know about magic literals.
 
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
@@ -172,11 +175,15 @@ git show-ref --verify --quiet refs/heads/<branch> && BRANCH="<branch>-$(date -u 
 
 ### 7. Memory recall
 
-Unless `NO_MEMORY` is set AND the resolved `memory.context_id` is not the `__unresolved__` sentinel from step 2a:
+Skip this step entirely if **either** of:
+- `NO_MEMORY` flag was set on `/start` invocation, OR
+- `memory.context_id` is `null` (set by step 2a when name resolution failed, OR set as the canonical "no recall" value)
+
+Otherwise:
 
 > **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a), `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
 
-Capture results as a list of `{summary, score}` pairs. If the tool errors, log a warning and continue (recall is best-effort). If the `memory.context_id` was `__unresolved__`, skip the recall call entirely and proceed to step 8 with an empty result list — the warning was already emitted in step 2a.
+Capture results as a list of `{summary, score}` pairs. If the tool errors at runtime, log a warning and continue (recall is best-effort) — proceed to step 8 with an empty result list. The skip path above already covered the "context_id couldn't be resolved" case, so by the time this step runs the `context_id` is a valid UUID; any error here is a runtime/network issue at recall time.
 
 ### 8. Build the gate1 prompt block
 

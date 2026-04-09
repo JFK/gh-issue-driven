@@ -226,7 +226,7 @@ Otherwise:
              /plugin install kagura-memory@kagura-memory-cloud
      ```
 
-> Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. Hence `claude-c-suite@claude-c-suite` (marketplace name is `claude-c-suite`, not `claude-c-suite-plugin`), and `kagura-memory@kagura-memory-cloud` (marketplace name is `kagura-memory-cloud`, GitHub org is `kagura-ai`). If the exact form differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
+> Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. The README's [Install section](../README.md#60-second-quickstart) is the canonical place where the marketplace-name-vs-repo-slug distinction is documented; this `try:` block intentionally mirrors that exact form. If the exact `<plugin>@<marketplace>` syntax differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 
