@@ -12,6 +12,20 @@ This command is **mostly read-only**. The single mutating action is `init`, whic
 
 ## Notes on specific keys
 
+### `lang`
+
+Output language for **operator-facing ephemeral output** — the recap text in `start.md` step 16, the gate prompts shown in the terminal, the AskUserQuestion 文言, the doctor diagnostics, the status pretty-print, and any prose narration Claude produces between steps. Accepts `"en"` (default) or `"ja"`.
+
+This is a minimal v0.1.1 implementation (Option A from the dogfooding session for #15). The full 3-layer i18n policy is tracked as #19 (v0.1.2). The minimal implementation honors the same 3-layer policy at low cost:
+
+- **Layer A — Durable artifacts (always English)**: PR title/body, commit messages, branch names, state JSON values. NEVER localized regardless of `lang`.
+- **Layer B — Operator-facing ephemeral (configurable)**: this is what `lang` controls. When `lang == "ja"`, Claude produces these in Japanese on the fly using its native multilingual ability. The templates in command files stay English — Claude translates them at execution time.
+- **Layer C — Parser tokens (always English-strict)**: `## Verdict: green|yellow|red|decline|pass|fail`, `exit_reason` enum values (`silent_no_op`, `no_actionable_feedback`, `approved`, `max_loops`, `tests_failed`), `detection_method` enum values (`requested_reviewers`, `latest_reviews`, `neither`). NEVER localized — these are parser contract.
+
+When `lang == "ja"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a final line `Please respond in Japanese.` appended. Reviewer responses then naturally produce Japanese review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English).
+
+What v0.1.1 minimal does NOT do (left for v0.1.2 / #19): no translation table, no message catalog, no CI parity lint, no source-level localization of templates. The English templates in command files remain visible to anyone reading the spec; only the runtime output is localized.
+
 ### `memory.context_id`
 
 Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
@@ -28,6 +42,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
 
 ```json
 {
+  "lang": "en",
   "default_branch": "main",
   "branch": {
     "type_label_map": {

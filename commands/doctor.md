@@ -6,6 +6,20 @@ arguments:
     required: false
 ---
 
+## Output language
+
+Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, produce all diagnostic output in Japanese — the ✅/⚠️/❌ check labels themselves stay as the literal emoji, but the descriptions, fail reasons, and `try:` hint text are localized. The Copilot review setup section's AskUserQuestion options are also localized when `lang == "ja"`.
+
+What stays English regardless of `lang`:
+
+- File paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`)
+- The cache file's JSON content and the state schema field names
+- The `try:` hint commands themselves (e.g. `apt install jq`, `/plugin install ...`) — only the surrounding prose is localized
+
+The Configuration file health check at step 11 reads `~/.claude/gh-issue-driven-config.json` as part of its informational scan; doctor's own `lang` read in this section is just-in-time, separate from step 11. (Same just-in-time pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`.)
+
+This is a minimal v0.1.1 implementation (Option A). The full 3-layer policy with template-level localization is tracked as #19 (v0.1.2).
+
 ## Trust boundary
 
 This command is **mostly read-only**. It must not modify any file outside its **single permitted file target**:
