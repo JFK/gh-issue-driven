@@ -1,0 +1,19 @@
+{
+  "reviewRequests": [
+    { "__typename": "Bot", "login": "copilot-pull-request-reviewer" }
+  ],
+  "latestReviews": [
+    {
+      "id": "PRR_kwDOExample",
+      "author": { "login": "copilot-pull-request-reviewer" },
+      "body": "Auto-review fired after manual --add-reviewer.",
+      "state": "COMMENTED",
+      "submittedAt": "2026-04-09T05:50:00Z"
+    }
+  ],
+  "_fixture_meta": {
+    "scenario": "Both signals positive simultaneously: operator manually re-added Copilot via gh pr edit --add-reviewer (populating reviewRequests) AND Mode A's auto-review already fired (populating latestReviews). The detection logic checks signals in priority order — reviewRequests first — so the result is (queued=true, detection_method=requested_reviewers). This fixture locks in the priority-order behavior so future refactors that flip the order would visibly fail.",
+    "expected_queued": true,
+    "expected_detection_method": "requested_reviewers"
+  }
+}

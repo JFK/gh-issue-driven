@@ -48,3 +48,6 @@ jobs:
 
       - name: Run copilot-detection fixture tests
         run: bash tests/copilot-detection.sh
+
+      - name: Verify ship.md inline jq stays in sync with canonical filter
+        run: bash tests/jq-sync-check.sh

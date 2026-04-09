@@ -290,9 +290,11 @@ DETECTION_METHOD="neither"
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   DETECTION_METHOD=$(gh pr view "$PR_NUMBER" --json reviewRequests,latestReviews 2>/dev/null \
     | jq -r '
+        # JQ_DETECT_FILTER_BEGIN
         if   ((.reviewRequests // []) | map(.login // .name // "") | any(test("[Cc]opilot"))) then "requested_reviewers"
         elif ((.latestReviews  // []) | map(.author.login // "")   | any(test("[Cc]opilot"))) then "latest_reviews"
         else "neither" end
+        # JQ_DETECT_FILTER_END
       ' 2>/dev/null || echo "neither")
   if [ "$DETECTION_METHOD" != "neither" ]; then
     COPILOT_QUEUED=true
@@ -308,7 +310,7 @@ if [ "$COPILOT_QUEUED" = "false" ]; then
 fi
 ```
 
-> **JQ filter sync**: the unified `jq -r` expression above is the body of the `detect` function in `tests/copilot-detection.jq` (which the fixture-driven test in `tests/copilot-detection.sh` uses as canonical). They are intentionally byte-equivalent. When you change the detection logic, update **both** in the same commit. CI does not currently diff them — that's tracked as a follow-up.
+> **JQ filter sync**: the unified `jq -r` expression above (between `# JQ_DETECT_FILTER_BEGIN` and `# JQ_DETECT_FILTER_END` sentinels) is the body of the `detect` function in `tests/copilot-detection.jq`. They are intentionally byte-equivalent. CI enforces this: `tests/jq-sync-check.sh` extracts the inline filter via the sentinels, runs both filters against every fixture, and asserts identical output. When you change one, update the other in the same commit — CI will fail loud otherwise.
 
 If `COPILOT_QUEUED` is `false`:
 - Skip step 14 entirely (the polling loop has nothing to wait for).
