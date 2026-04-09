@@ -45,3 +45,9 @@ jobs:
 
       - name: Verify command frontmatter parses and has required fields
         run: python3 .github/workflows/check-frontmatter.py
+
+      - name: Run copilot-detection fixture tests
+        run: bash tests/copilot-detection.sh
+
+      - name: Verify ship.md inline jq stays in sync with canonical filter
+        run: bash tests/jq-sync-check.sh

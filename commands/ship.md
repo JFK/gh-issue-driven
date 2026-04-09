@@ -36,6 +36,34 @@ if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
 fi
 ```
 
+#### gh CLI version check (warn-only, runs unconditionally)
+
+This check runs as part of pre-flight, before configuration is loaded — so it cannot read `copilot.enabled` and intentionally always runs. It compares `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op. The warning is **harmless when copilot is disabled** (the loop won't run anyway), so emitting it unconditionally is the simpler design vs deferring to step 2.
+
+```bash
+# Strip a leading "v" so a future "gh version v2.88.0" output still parses cleanly.
+GH_VER=$(gh --version 2>/dev/null | awk 'NR==1 {sub(/^v/,"",$3); print $3}')
+# Portable POSIX awk version compare (avoids `sort -V -C` which is GNU-only and
+# silently breaks on macOS/BSD). Compares major.minor against (2, 88); patch is
+# ignored because the floor is 2.88.0. A "-rcN" suffix on the patch is also OK
+# because we don't read v[3] at all. The awk also strips a leading "v" defensively
+# even though the GH_VER capture above already does — both layers are independent.
+if [ -n "$GH_VER" ] && awk -v ver="$GH_VER" 'BEGIN {
+  sub(/^v/, "", ver);
+  split(ver, v, ".");
+  if ((v[1]+0) < 2)  exit 0
+  if ((v[1]+0) > 2)  exit 1
+  if ((v[2]+0) < 88) exit 0
+  exit 1
+}'; then
+  echo "warning: gh CLI $GH_VER is older than 2.88.0 — manual Copilot reviewer add will silently no-op."
+  echo "         If copilot is enabled, the loop will still work IF this repo has Automatic Copilot code review enabled."
+  echo "         Run /gh-issue-driven:doctor to confirm setup, or upgrade gh: https://cli.github.com/"
+fi
+```
+
+This is a **warn**, not an abort — users on older `gh` with auto-review enabled have a fully working path. The hard error lives in `/gh-issue-driven:doctor` (only when auto-review confirmation is also missing).
+
 Load `~/.claude/cache/gh-issue-driven/<branch>.json`. If missing:
 - Print `no gh-issue-driven state for this branch — running in ship-only mode`
 - Synthesize a minimal `STATE` from current branch + `gh pr list` (to detect if a PR already exists)
@@ -245,21 +273,76 @@ gh pr create \
 
 Capture the PR number and URL into `PR_NUMBER` and `PR_URL`. Update the state file with `pr.number`, `pr.url`, `pr.created_at`, `phase=pr_open`.
 
-### 13. Request Copilot review
+### 13. Request Copilot review (with bounded post-add verification)
 
 Skip if `NO_COPILOT` or `DRY_RUN`.
 
+The plain `gh pr edit --add-reviewer` shell pattern is **not safe** to trust on its own:
+
+- On `gh < 2.88.0`, `--add-reviewer @copilot` exits 0 but the API server-side never queues Copilot. A `|| echo` warning will never fire because the exit code is clean. (Bug A in #15.)
+- On any `gh` version, repos with **Automatic Copilot code review** enabled fire the review independently of the `--add-reviewer` call (the review appears under `latestReviews`, not `reviewRequests`). Checking only `reviewRequests` would falsely conclude "Copilot was not added" and skip the loop, missing a review that's actually coming.
+
+So step 13 issues the add **and** then verifies, polling **two** signals over a bounded short window:
+
 ```bash
 REVIEWER_LOGIN="<from config, default '@copilot'>"
-gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" \
-  || echo "warning: could not add Copilot reviewer (may not be available on this repo)"
+VERIFY_WAIT_SEC="<from config copilot.verification_wait_sec, default 30>"
+
+# Issue the add. Best-effort: a non-zero exit just means "not silently no-op'd" —
+# we still verify after, because exit 0 is also possible on the silent-no-op path.
+gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
+
+# Bounded poll for either signal. Polls every 2s up to VERIFY_WAIT_SEC (default 30s).
+# Mode A auto-review latency varies widely in practice (observed 1s to 240s+ depending
+# on Copilot infra load and repo settings). The 2s poll interval keeps the fast-fire
+# case fast without adding meaningful cost to the slow case. The 30s ceiling is the
+# real timing default — and it is wrong for slow-Mode-A repos. See issue #23 for the
+# architectural fix that retires step 13's bounded wait entirely and lets step 14's
+# polling loop detect silent_no_op naturally.
+#
+# TODO(#23): this whole DEADLINE/while/break block is the false-positive surface.
+# When #23 lands, replace it with a single fire-and-forget gh pr edit and rely on
+# step 14's polling loop to detect silent_no_op via "no Copilot activity after N polls".
+DEADLINE=$(( $(date +%s) + VERIFY_WAIT_SEC ))
+COPILOT_QUEUED=false
+DETECTION_METHOD="neither"
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  DETECTION_METHOD=$(gh pr view "$PR_NUMBER" --json reviewRequests,latestReviews 2>/dev/null \
+    | jq -r '
+        # JQ_DETECT_FILTER_BEGIN
+        if   ((.reviewRequests // []) | map(.login // .name // "") | any(test("[Cc]opilot"))) then "requested_reviewers"
+        elif ((.latestReviews  // []) | map(.author.login // "")   | any(test("[Cc]opilot"))) then "latest_reviews"
+        else "neither" end
+        # JQ_DETECT_FILTER_END
+      ' 2>/dev/null || echo "neither")
+  if [ "$DETECTION_METHOD" != "neither" ]; then
+    COPILOT_QUEUED=true
+    break
+  fi
+  sleep 2
+done
+
+if [ "$COPILOT_QUEUED" = "false" ]; then
+  echo "warning: Copilot reviewer not detected after ${VERIFY_WAIT_SEC}s"
+  echo "         likely cause: gh CLI < 2.88.0 AND Automatic Copilot code review is not enabled on this repo"
+  echo "         see /gh-issue-driven:doctor for setup guidance"
+fi
 ```
 
-If the reviewer add fails, log it but do **not** abort — continue to memory step 15.
+> **JQ filter sync**: the unified `jq -r` expression above (between `# JQ_DETECT_FILTER_BEGIN` and `# JQ_DETECT_FILTER_END` sentinels) is **semantically equivalent** to the body of the `detect` function in `tests/copilot-detection.jq` — meaning both produce identical output across every fixture in `tests/fixtures/copilot-detection/`. They are NOT byte-identical: the inline form uses `any(test(...))` (predicate form) while the canonical form uses `map(test(...)) | any` (mapped form). These are equivalent in jq but not source-identical. CI enforces the semantic equivalence: `tests/jq-sync-check.sh` extracts the inline filter via the sentinels, runs both filters against every fixture, and asserts identical output strings. When you change one, update the other in the same commit — CI will fail loud otherwise.
+
+If `COPILOT_QUEUED` is `false`:
+- Skip step 14 entirely (the polling loop has nothing to wait for).
+- Continue to step 15 (memory) so the session still gets summarized.
+- Persist `copilot.exit_reason="silent_no_op"` and `copilot.detection_method="neither"` in step 14.g's state shape (even though the loop didn't run, the state is the diagnostic record).
+
+If `COPILOT_QUEUED` is `true`, continue to step 14 with `DETECTION_METHOD` carried into the state.
 
 ### 14. Copilot review loop
 
-Skip entirely if `NO_COPILOT` or `DRY_RUN` or step 13 failed to add the reviewer.
+Skip entirely if `NO_COPILOT`, `DRY_RUN`, or `COPILOT_QUEUED=false` from step 13.
+
+When skipping due to `COPILOT_QUEUED=false`, still write the state file at step 14.g's shape with `loops_run=0`, `exit_reason="silent_no_op"`, `detection_method="neither"` so `/gh-issue-driven:status` reports the diagnosis.
 
 Loop up to `copilot.max_loops` (default 5) iterations within this same Claude turn. For each iteration `i` from 1 to max:
 
@@ -286,10 +369,20 @@ Read the JSON from the most recent poll. Identify:
 
 #### 14.c. Exit conditions (check in this order)
 
-1. `REVIEW_DECISION == APPROVED` → break with success.
-2. No new comments AND no `CHANGES_REQUESTED` review since `START_TS` → break ("no actionable feedback").
-3. Iteration counter equals `max_loops` → break ("max loops reached").
-4. New comments are all generic ("looks good", "no issues found", with no diff suggestions) → break.
+Each exit condition sets a specific `exit_reason` so `/gh-issue-driven:status` and post-mortem can distinguish them:
+
+1. `REVIEW_DECISION == APPROVED` → break with `exit_reason="approved"`.
+2. No new comments AND no `CHANGES_REQUESTED` review since `START_TS` → break with `exit_reason="no_actionable_feedback"`.
+3. Iteration counter equals `max_loops` → break with `exit_reason="max_loops"`.
+4. New comments are all generic ("looks good", "no issues found", with no diff suggestions) → break with `exit_reason="no_actionable_feedback"`.
+
+There is also a fifth terminal state set elsewhere in the loop:
+
+5. Tests fail mid-loop in step 14.d → save state with `exit_reason="tests_failed"` and stop the loop without committing.
+
+And a sixth terminal state set in step 13 when the loop is skipped before it ever starts:
+
+6. `COPILOT_QUEUED=false` from step 13 → write state at step 14.g shape with `loops_run=0` and `exit_reason="silent_no_op"`.
 
 #### 14.d. Address actionable comments
 
@@ -332,9 +425,16 @@ gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN"
   "loops_run": <i>,
   "max_loops": <max>,
   "last_state": "<REVIEW_DECISION>",
-  "last_polled_at": "<UTC ISO-8601>"
+  "last_polled_at": "<UTC ISO-8601>",
+  "detection_method": "<requested_reviewers|latest_reviews|neither>",
+  "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op>"
 }
 ```
+
+Field semantics:
+
+- `detection_method` is set in step 13's verification and carried unchanged through every loop iteration. It records which signal flagged Copilot as queued — high diagnostic value when investigating "why did the loop run / not run" later.
+- `exit_reason` is `null` (or absent) while the loop is still iterating, and gets its terminal value when one of the exit conditions in 14.c (or step 13's silent-no-op skip, or 14.d's test-failure stop) fires. The five enumerated terminal values are: `approved`, `no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`.
 
 Continue to the next iteration.
 
@@ -391,7 +491,8 @@ Stop. Do not continue running anything else.
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
-| Copilot reviewer not available | Skip loop, continue to memory step. |
+| Copilot reviewer not detected after step 13 verification (`COPILOT_QUEUED=false`) | Skip loop, write state with `exit_reason=silent_no_op`, continue to memory step. |
+| `gh < 2.88.0` AND auto-review off | Step 1 emits a warn; step 13's verification then trips `silent_no_op` and skips the loop. |
 | Tests fail mid-loop | Stop loop, save state, report. Do not commit broken code. |
 | Loop hits max iterations | Exit gracefully, leave PR open, tell user to handle remaining feedback manually. |
 

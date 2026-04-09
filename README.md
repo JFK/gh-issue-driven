@@ -15,16 +15,24 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 ## 60-second quickstart
 
 ```text
+# Step 0 — one-time, in your repo's GitHub Settings page:
+#   Settings → Code review → ☑ Automatic Copilot code review
+#   URL: https://github.com/<owner>/<repo>/settings/code-review
+#   This makes the Copilot review loop work on any gh CLI version.
+#   Without it, you need gh CLI >= 2.88.0 (see Requirements below).
+
 # In any Claude Code session:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
 
 # In a repo:
-/gh-issue-driven:doctor          # one-time environment check
+/gh-issue-driven:doctor          # one-time environment check (will prompt to confirm Step 0)
 /gh-issue-driven:start 142       # phase 1
 # ... implement ...
 /gh-issue-driven:ship            # phase 2
 ```
+
+> **Why Step 0 matters**: GitHub's "Automatic Copilot code review" repo setting auto-requests Copilot's review on every PR open and every push, making the loop self-sustaining on any `gh` version. Without it, the plugin falls back to `gh pr edit --add-reviewer @copilot`, which **silently no-ops** on `gh < 2.88.0` (see [#15](https://github.com/JFK/gh-issue-driven/issues/15)). `/gh-issue-driven:doctor` will prompt you to confirm Step 0 once per 7 days per repo and hard-fail if neither path is available.
 
 ---
 
@@ -109,10 +117,22 @@ Then loops up to **5 iterations** (configurable):
 
 The loop is **never blocking**: if it exhausts 5 iterations, the PR stays open and you handle remaining feedback manually.
 
-### Requirements
+### Requirements (one of)
 
-- `gh` CLI v2.88.0 or later (Copilot reviewer support, [March 2026 changelog](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/)).
-- The repo must have GitHub Copilot code review enabled.
+The Copilot loop has **two operational modes**. **One must be true** for the loop to function end-to-end:
+
+- **Mode A (recommended)** — `Settings → Code review → ☑ Automatic Copilot code review` enabled at the repo level. Works on any `gh` CLI version. Copilot is auto-requested on every PR open and on every push.
+- **Mode B** — `gh` CLI **v2.88.0 or later** (the version that added real `--add-reviewer @copilot` support per the [March 2026 changelog](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/)). Earlier `gh` versions silently no-op the manual reviewer add — see [#15](https://github.com/JFK/gh-issue-driven/issues/15).
+
+Both also require: the repo must have GitHub Copilot code review feature available on its plan.
+
+### Manual Web UI fallback
+
+If you can't enable Mode A AND can't upgrade `gh` to 2.88.0+:
+
+1. After the plugin creates the PR, open it in the GitHub Web UI.
+2. In the right sidebar → Reviewers → click "Copilot".
+3. Re-run `/gh-issue-driven:ship` once Copilot's review lands. (Resume mode is tracked as [#14](https://github.com/JFK/gh-issue-driven/issues/14).)
 
 ---
 

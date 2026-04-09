@@ -58,8 +58,12 @@ PR      <pr_url>  (#<number>, opened <relative time ago>)
         ... or ... (no PR yet)
 
 Copilot Loop <loops_run>/<max_loops>, last state: <last_state>
+        Detection: <detection_method>   ← (omit line if absent in state)
+        Exit:      <exit_reason>        ← (omit line if absent / loop still in progress)
         Last polled: <relative time>
 ```
+
+The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`. When `exit_reason == "silent_no_op"`, also append a one-line hint pointing at `/gh-issue-driven:doctor` so the operator can confirm Mode A or upgrade gh.
 
 For the live PR state, run:
 
@@ -82,6 +86,8 @@ If `$ARGUMENTS == "all"`:
 
 3. Sort by `started_at` descending.
 4. Print a footer line: `<count> tracked branches.`
+5. If any row has `copilot.exit_reason == "silent_no_op"`, append a single hint after the footer:
+   `Hint: <N> branch(es) hit Copilot silent_no_op — run /gh-issue-driven:doctor to verify Mode A or upgrade gh.`
 
 ### 5. Hint footer
 

@@ -1,0 +1,9 @@
+{
+  "reviewRequests": [],
+  "latestReviews": [],
+  "_fixture_meta": {
+    "scenario": "Silent no-op: gh CLI < 2.88.0 + Automatic Copilot code review NOT enabled. gh pr edit --add-reviewer @copilot exited 0 but server-side never queued Copilot, and no auto-review fired. After the bounded wait, both signals remain empty. Loop must skip with exit_reason=silent_no_op.",
+    "expected_queued": false,
+    "expected_detection_method": "neither"
+  }
+}

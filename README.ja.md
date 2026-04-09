@@ -15,16 +15,24 @@
 ## 60秒クイックスタート
 
 ```text
+# ステップ0 — リポジトリの GitHub Settings ページで一度だけ:
+#   Settings → Code review → ☑ Automatic Copilot code review
+#   URL: https://github.com/<owner>/<repo>/settings/code-review
+#   これを有効にすると、Copilot レビューループが gh CLI のバージョンに依存せず動く。
+#   有効化しない場合は gh CLI >= 2.88.0 が必要 (下記「必要なバージョン」参照)。
+
 # Claude Code セッション内:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
 
 # 任意のリポジトリで:
-/gh-issue-driven:doctor          # 初回環境チェック
+/gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
 /gh-issue-driven:start 142       # フェーズ1
 # ... 実装 ...
 /gh-issue-driven:ship            # フェーズ2
 ```
+
+> **ステップ0 が必要な理由**: GitHub の "Automatic Copilot code review" リポジトリ設定を有効にすると、PR 作成時と push のたびに Copilot レビューが自動で要求されるため、gh CLI のバージョンに関係なくループが自走します。有効化していない場合、プラグインは `gh pr edit --add-reviewer @copilot` にフォールバックしますが、これは `gh < 2.88.0` で **silent に no-op します** ([#15](https://github.com/JFK/gh-issue-driven/issues/15) 参照)。`/gh-issue-driven:doctor` は repo ごとに7日間隔でステップ0 の確認 prompt を出し、どちらのモードも使えない場合は hard fail します。
 
 ---
 
@@ -109,10 +117,22 @@ gh pr edit <num> --add-reviewer @copilot
 
 ループは **never-blocking**：5周使い切っても PR は開いたまま、残りは手動で対応してもらいます。
 
-### 必要なバージョン
+### 必要なバージョン (どちらか一方)
 
-- `gh` CLI v2.88.0 以降（Copilot reviewer サポート、[2026年3月の Changelog](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/)）
-- リポジトリで GitHub Copilot code review が有効化されていること
+Copilot ループには **2つの動作モード**があり、**どちらか一方**が成立していればループが end-to-end で動きます：
+
+- **Mode A (推奨)** — リポジトリ設定で `Settings → Code review → ☑ Automatic Copilot code review` を有効化。**任意の `gh` CLI バージョンで動く**。Copilot が PR 作成時と push のたびに自動で要求される。
+- **Mode B** — `gh` CLI **v2.88.0 以降** ([2026年3月の Changelog](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/) で追加された本物の `--add-reviewer @copilot` サポート)。それ以前の `gh` バージョンでは手動 reviewer add が silent に no-op する ([#15](https://github.com/JFK/gh-issue-driven/issues/15) 参照)。
+
+両モード共通: リポジトリのプランで GitHub Copilot code review 機能が利用可能であること。
+
+### Web UI による手動フォールバック
+
+Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードできない場合：
+
+1. プラグインが PR を作成した後、GitHub Web UI で PR を開く。
+2. 右サイドバー → Reviewers → "Copilot" をクリック。
+3. Copilot のレビューが届いたら `/gh-issue-driven:ship` を再実行する。(resume mode は [#14](https://github.com/JFK/gh-issue-driven/issues/14) で追跡中。)
 
 ---
 
