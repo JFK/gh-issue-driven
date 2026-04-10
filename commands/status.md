@@ -46,11 +46,20 @@ Then exit.
 
 ### 3. Pretty-print the state
 
-Read the JSON. Print a single block:
+Read the JSON. Extract issue data using the same v1/v2 compatibility logic as `ship.md` step 1b: if `state.issues` array exists, use it; otherwise synthesize from `state.issue_number`/`state.issue_title`/`state.issue_url`.
+
+Print a single block:
 
 ```
+<if state.issues has more than 1 entry:>
+Issues  #<n1> <title1>
+        #<n2> <title2>
+        #<n3> <title3>
+        ...
+<else:>
 Issue   #<num> <title>
         <url>
+</if>
 Repo    <repo>
 Branch  <branch>  (type: <type>)
 Phase   <phase>   (started <relative time ago>)

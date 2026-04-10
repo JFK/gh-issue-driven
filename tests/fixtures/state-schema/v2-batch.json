@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "issues": [
+    {
+      "number": 4,
+      "title": "start.md: sanitize external text before interpolating into prompts",
+      "url": "https://github.com/JFK/gh-issue-driven/issues/4",
+      "labels": ["enhancement", "security"]
+    },
+    {
+      "number": 12,
+      "title": "ship.md: validate branch name against allow-list",
+      "url": "https://github.com/JFK/gh-issue-driven/issues/12",
+      "labels": ["enhancement"]
+    },
+    {
+      "number": 20,
+      "title": "start.md: chmod 0700 on cache directory",
+      "url": "https://github.com/JFK/gh-issue-driven/issues/20",
+      "labels": ["security"]
+    }
+  ],
+  "issue_number": 4,
+  "issue_title": "start.md: sanitize external text before interpolating into prompts",
+  "issue_url": "https://github.com/JFK/gh-issue-driven/issues/4",
+  "repo": "JFK/gh-issue-driven",
+  "branch": "4-batch/4-12-20",
+  "branch_type": "feat",
+  "is_batch": true,
+  "started_at": "2026-04-10T12:00:00Z",
+  "phase": "designed",
+  "gate1": {
+    "reviewer": "ask",
+    "escalated_to": "ceo",
+    "verdict": "green",
+    "summary_path": "~/.claude/cache/gh-issue-driven/4-batch-4-12-20.gate1.md",
+    "ran_at": "2026-04-10T12:00:00Z"
+  },
+  "gate2": null,
+  "pr": null,
+  "copilot": null,
+  "dry_run": false
+}

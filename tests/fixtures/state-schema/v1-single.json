@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "issue_number": 39,
+  "issue_title": "config: auto-detect memory context_id on first run",
+  "issue_url": "https://github.com/JFK/gh-issue-driven/issues/39",
+  "repo": "JFK/gh-issue-driven",
+  "branch": "39-feat/config-auto-detect-memory-context-id-on",
+  "branch_type": "feat",
+  "started_at": "2026-04-10T12:00:00Z",
+  "phase": "designed",
+  "gate1": {
+    "reviewer": "ask",
+    "escalated_to": null,
+    "verdict": "green",
+    "summary_path": "~/.claude/cache/gh-issue-driven/39-feat-config-auto-detect-memory-context-id-on.gate1.md",
+    "ran_at": "2026-04-10T12:00:00Z"
+  },
+  "gate2": null,
+  "pr": null,
+  "copilot": null,
+  "dry_run": false
+}

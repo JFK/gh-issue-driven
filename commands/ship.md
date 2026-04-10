@@ -109,6 +109,15 @@ Load `~/.claude/cache/gh-issue-driven/<branch>.json`. If missing:
 - Synthesize a minimal `STATE` from current branch + `gh pr list` (to detect if a PR already exists)
 - Skip the gate1 summary in the PR body
 
+#### 1b. Extract issue data from state (v1/v2 compatibility)
+
+When the state file is loaded, extract issue data with v1/v2 compatibility:
+
+- **If `state.issues` array exists** (v2): use it. Set `IS_BATCH = len(issues) > 1`. Set `ISSUE_NUM`, `ISSUE_TITLE` from `issues[0]` (or from the v1 aliases `state.issue_number`, `state.issue_title` — they are identical by construction).
+- **If `state.issues` is absent** (v1): synthesize `issues = [{number: state.issue_number, title: state.issue_title, url: state.issue_url}]`. Set `IS_BATCH = false`.
+
+This ensures all downstream steps can use `state.issues` uniformly regardless of schema version.
+
 ### 2. Load configuration and parse flags
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT`, `RESUME` booleans. Reject unknown flags.
@@ -398,7 +407,13 @@ This check has **no bypass flag** — not even `force` overrides it. The user mu
 Build the PR body from a template (use the issue title for the PR title):
 
 ```
+<if IS_BATCH:>
+<for each issue in state.issues:>
+Closes #<issue.number>
+</for>
+<else:>
 Closes #<issue_num>
+</if>
 
 ## Summary
 <2–4 bullet points distilled from commit messages and the issue body>
@@ -434,7 +449,15 @@ Then create the PR:
 
 ```bash
 TITLE_TEMPLATE="<from config, default '{type}: {title} (#{number})'>"
-TITLE=$(printf "$TITLE_TEMPLATE" | sed "s|{type}|$BRANCH_TYPE|; s|{title}|$ISSUE_TITLE|; s|{number}|$ISSUE_NUM|")
+
+# For batch mode, compose title from all issue numbers
+if [ "$IS_BATCH" = "true" ]; then
+  ISSUE_NUMS_STR=$(echo "$ISSUE_NUMS" | tr ' ' ',' | sed 's/,/, #/g; s/^/#/')
+  # e.g. "#4, #12, #20, #21"
+  TITLE="${BRANCH_TYPE}: batch ${ISSUE_NUMS_STR}"
+else
+  TITLE=$(printf "$TITLE_TEMPLATE" | sed "s|{type}|$BRANCH_TYPE|; s|{title}|$ISSUE_TITLE|; s|{number}|$ISSUE_NUM|")
+fi
 
 DRAFT_FLAG=""
 [ "$DRAFT" = "true" ] && DRAFT_FLAG="--draft"
