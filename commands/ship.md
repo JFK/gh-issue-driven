@@ -95,6 +95,16 @@ Load `~/.claude/cache/gh-issue-driven/<branch>.json`. If missing:
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT` booleans. Reject unknown flags.
 
+`DRAFT` defaults to `pr.draft_default` from the effective config (default `true`). The `draft` flag in `$ARGUMENTS` **overrides** this to `true`. There is no flag to force non-draft when `pr.draft_default` is `true` — the operator should set the config value to `false` if they want non-draft as the default.
+
+When `DRAFT` is `true`, the PR is created with `--draft`. After the Copilot review loop completes with `exit_reason="approved"`, the PR is automatically promoted to ready-for-review:
+
+```bash
+gh pr ready "$PR_NUMBER"
+```
+
+If the loop exits for any other reason (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`), the PR stays as draft — the operator can manually promote it after reviewing the Copilot feedback.
+
 ### 3. Capture diff context
 
 ```bash
@@ -521,6 +531,18 @@ Field semantics:
 Continue to the next iteration.
 
 After the loop ends (whether by APPROVED, no-feedback, or max-loops), update `phase=pr_open` (Copilot loop is never the final phase — `done` is set only by manual confirmation or merge).
+
+#### 14.h. Promote draft PR on approval
+
+If `DRAFT` is `true` AND `exit_reason` is `"approved"`, promote the PR from draft to ready-for-review:
+
+```bash
+gh pr ready "$PR_NUMBER"
+```
+
+If the promotion fails (e.g., permissions), log a warning but do not abort — the PR is still usable as a draft. For any other `exit_reason` (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`), leave the PR as draft.
+
+Update the state file with `pr.state` reflecting the outcome: `"ready"` if promotion succeeded, `"draft"` if it was skipped or failed. This makes the draft→ready transition observable via `/gh-issue-driven:status`.
 
 ### 15. Save the session summary to memory
 

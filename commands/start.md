@@ -370,14 +370,51 @@ Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
-
-Next steps:
-  1. Implement the change on this branch.
-  2. Run /simplify (built-in Claude Code skill) to review the diff for reuse,
-     quality, and efficiency before shipping. Address any findings as a
-     follow-up commit on this same branch.
-  3. /gh-issue-driven:ship   ← when implementation is ready
 ```
+
+### 17. Print implementation guidance
+
+After the recap block, print an **implementation guidance** section. This step closes the perceived workflow gap between `/start` and `/ship` by surfacing actionable next steps at the moment the branch is ready.
+
+#### 17a. Extract gate1 key suggestions
+
+Scan `GATE1_OUTPUT` for actionable guidance: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case". Extract up to **3** of the most concrete items. If nothing extractable, omit the checklist entirely (do not invent guidance).
+
+Format the extracted items as an indented bullet list:
+
+```
+Gate1 guidance:
+  - <extracted suggestion 1>
+  - <extracted suggestion 2>
+  - <extracted suggestion 3>
+```
+
+If `GATE1_VERDICT` is `unknown` (reviewer skills not installed), omit this sub-section entirely.
+
+#### 17b. Detect available workflow skills
+
+Check the current conversation's system-reminder skill list for the presence of these skills:
+
+- `/feature-dev:feature-dev` — guided feature development (7-phase: discovery → exploration → questions → architecture → implementation → quality review → summary)
+- `/simplify` — built-in Claude Code skill for reviewing changed code
+
+For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills.
+
+#### 17c. Print the suggested workflow
+
+```
+Suggested workflow:
+  1. Implement the change on this branch.
+  2. Run /feature-dev:feature-dev for guided development (optional)      ← only if detected
+  3. Run /simplify to review changed code before shipping.   ← only if detected
+  4. /gh-issue-driven:ship   ← when implementation is ready
+```
+
+Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection.
+
+#### 17d. Respect `lang` setting
+
+When `lang == "ja"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in Japanese. The skill names (`/feature-dev`, `/simplify`, `/ship`) stay as-is (they are command identifiers, not prose).
 
 Stop here. Do not proceed further. The user will implement the change manually and then invoke `/gh-issue-driven:ship`.
 

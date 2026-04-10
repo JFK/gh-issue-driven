@@ -226,36 +226,45 @@ Otherwise:
              /plugin install kagura-memory@kagura-memory-cloud
      ```
 
+10. **Workflow plugin: `feature-dev`** (optional — enhances the implementation phase between `/start` and `/ship`)
+   - Probe via plugin cache glob: `~/.claude/plugins/cache/claude-plugins-official/feature-dev*`.
+   - Warn if missing → `guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
+   - When `fix` flag is set AND missing, append:
+     ```
+        try: /plugin install feature-dev
+     ```
+     (Available from the Claude Code official marketplace — no marketplace add needed.)
+
 > Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. The README's [Install section](../README.md#60-second-quickstart) is the canonical place where the marketplace-name-vs-repo-slug distinction is documented; this `try:` block intentionally mirrors that exact form. If the exact `<plugin>@<marketplace>` syntax differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 
-10. **Working tree clean**
+11. **Working tree clean**
     ```bash
     test -z "$(git status --porcelain)"
     ```
     Warn if dirty (but `start` would refuse anyway — this is an early heads-up).
 
-11. **Configuration file**
+12. **Configuration file**
     ```bash
     test -f ~/.claude/gh-issue-driven-config.json && jq empty ~/.claude/gh-issue-driven-config.json
     ```
     - Missing → informational, defaults will be used. Hint: `/gh-issue-driven:config init`.
     - Present but unparseable → warn with the `jq` error.
 
-12. **gh API scope check**
+13. **gh API scope check**
     ```bash
     gh api user --jq .login
     ```
     Just to confirm the auth has API access.
 
-13. **Copilot reviewer reachability** (informational, may be unsupported on some plans)
+14. **Copilot reviewer reachability** (informational, may be unsupported on some plans)
     ```bash
     gh api repos/:owner/:repo/collaborators 2>/dev/null | grep -q copilot
     ```
     Print `✅` / `⚠️ Copilot reviewer not detected — may still work via @copilot mention`.
 
-14. **Stale state files**
+15. **Stale state files**
     List `~/.claude/cache/gh-issue-driven/*.json` and check whether the corresponding branch (decoded from filename) still exists locally:
     ```bash
     git show-ref --verify --quiet refs/heads/<branch>
