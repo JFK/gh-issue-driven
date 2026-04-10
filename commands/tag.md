@@ -299,8 +299,10 @@ If `CHANGELOG.md` was newly created, it is included in the staging. If it alread
 **Skip this step entirely if `DRY_RUN` is true.**
 
 ```bash
-git tag "v<VERSION>"
+git tag -a "v<VERSION>" -m "v<VERSION>"
 ```
+
+The `-a` flag creates an **annotated** tag (required for `--follow-tags` in step 11 to push it — lightweight tags created by `git tag` without `-a` are silently skipped by `--follow-tags`).
 
 Verify:
 

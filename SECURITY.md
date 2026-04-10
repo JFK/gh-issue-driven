@@ -26,7 +26,7 @@ All other writes are forbidden and the command bodies state this explicitly.
 
 ## What this plugin will NOT do
 
-- Push to the default branch
+- Push to the default branch — **except** `/gh-issue-driven:tag`, which pushes a `chore: release` commit + annotated tag to main as part of the explicit release ceremony (see tag.md Trust boundary)
 - `git push --force` or `--force-with-lease`
 - Bypass branch protection rules
 - Delete any branch (local or remote)
