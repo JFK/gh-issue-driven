@@ -244,16 +244,14 @@ skill が見つからない場合の degrade：
 
 ## Limitations / 既知の制限事項
 
-`gh-issue-driven` は alpha software (v0.1.x) です。orchestrated flow は real PR で end-to-end 動作しています (このプラグインは `JFK/gh-issue-driven` で自分自身の PR を ship した実績あり) が、v0.1.1 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
+`gh-issue-driven` は beta software (v0.2.x) です。orchestrated flow は real PR で end-to-end 動作しています (このプラグインは `JFK/gh-issue-driven` で自分自身の PR を ship した実績あり) が、v0.2.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
 
 - **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
-- **resume mode 無し** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — `/ship` が loop の途中で exit した場合 (test failure, 手動中断, silent_no_op)、再実行すると現在は resume せずに全 gate が再実行される。
-- **`memory.context_id` の自動検出** ([#39](https://github.com/JFK/gh-issue-driven/issues/39)) — `memory.context_id` のデフォルトは `null`。初回 `/start` 実行時にプラグインが対話的に Kagura Memory context の選択または新規作成を促し、選択した UUID を config ファイルに保存する。v0.1.x から upgrade した場合、旧デフォルト `"gh-issue-driven-dev"` の name resolution が失敗すると同じ自動検出プロンプトが表示される。kagura-memory を使わないユーザーはこのフィールドを無視できる (recall は自動 skip)。**現状 `/gh-issue-driven:doctor` が configured context_id の解決を validate しない**のは follow-up として追跡。
-- **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない (v0.2.0+ で [#3](https://github.com/JFK/gh-issue-driven/issues/3) と一緒に対応予定)。
-- **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。v0.1.1 hardening tail の follow-up として filed。
-- **PR body の secret-like 値を自動検出しない** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — プラグインは commit message と diff context から PR body を生成する。v0.2.0 で secret-scan abort を追加予定。
+- **`/gh-issue-driven:doctor` が context_id の解決を validate しない** — `memory.context_id` は `/start` 時に解決されるが、`/doctor` ではまだ解決チェックが行われない。follow-up として追跡。
+- **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない ([#10](https://github.com/JFK/gh-issue-driven/issues/10) で追跡)。
+- **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。
 
-既知 issue の全リストは [v0.1.1](https://github.com/JFK/gh-issue-driven/milestone/1)、[v0.1.2](https://github.com/JFK/gh-issue-driven/milestone/4)、[v0.2.0](https://github.com/JFK/gh-issue-driven/milestone/2) の milestone を参照してください。
+既知 issue の全リストは [v0.2.1](https://github.com/JFK/gh-issue-driven/milestone/5)、[v0.3.0](https://github.com/JFK/gh-issue-driven/milestone/3) の milestone を参照してください。
 
 ---
 

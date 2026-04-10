@@ -272,16 +272,14 @@ For each:
 
 ## Limitations
 
-`gh-issue-driven` is alpha software (v0.1.x). The orchestrated flow works end-to-end on real PRs (the plugin has been used to ship its own PRs against `JFK/gh-issue-driven`), but the following known sharp edges exist as of v0.1.1. None lose data or corrupt state, but they affect the operator experience:
+`gh-issue-driven` is beta software (v0.2.x). The orchestrated flow works end-to-end on real PRs (the plugin has been used to ship its own PRs against `JFK/gh-issue-driven`), but the following known sharp edges exist as of v0.2.0. None lose data or corrupt state, but they affect the operator experience:
 
 - **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
-- **No resume mode** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — if `/ship` exits mid-loop (test failure, manual interrupt, silent_no_op), re-running it currently re-runs all gates from scratch instead of resuming where it left off.
-- **`memory.context_id` auto-detect** ([#39](https://github.com/JFK/gh-issue-driven/issues/39)) — `memory.context_id` defaults to `null`. On first `/start` run, the plugin interactively prompts the user to select or create a Kagura Memory context, then persists the chosen UUID to the config file. Users upgrading from v0.1.x with the old `"gh-issue-driven-dev"` placeholder get the same auto-detect prompt when name resolution fails. Users without kagura-memory can ignore the field — recall is skipped automatically. The current sharp edge is that **`/gh-issue-driven:doctor` does not yet validate that the configured context_id resolves successfully** — that's tracked as a follow-up.
-- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (deferred to v0.2.0+ alongside [#3](https://github.com/JFK/gh-issue-driven/issues/3)).
-- **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync). Filed as a v0.1.1 hardening tail follow-up.
-- **No automated handling of secret-shaped values in PR bodies** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — the plugin generates PR bodies from commit messages and diff context. v0.2.0 will add a secret-scan abort.
+- **`/gh-issue-driven:doctor` does not validate context_id resolution** — the configured `memory.context_id` is resolved at `/start` time, but `/doctor` does not yet check whether it resolves successfully. Tracked as a follow-up.
+- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (tracked in [#10](https://github.com/JFK/gh-issue-driven/issues/10)).
+- **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync).
 
-For the full list of known issues, see the [v0.1.1](https://github.com/JFK/gh-issue-driven/milestone/1), [v0.1.2](https://github.com/JFK/gh-issue-driven/milestone/4), and [v0.2.0](https://github.com/JFK/gh-issue-driven/milestone/2) milestones.
+For the full list of known issues, see the [v0.2.1](https://github.com/JFK/gh-issue-driven/milestone/5) and [v0.3.0](https://github.com/JFK/gh-issue-driven/milestone/3) milestones.
 
 ---
 
