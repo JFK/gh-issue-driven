@@ -95,7 +95,7 @@ Load `~/.claude/cache/gh-issue-driven/<branch>.json`. If missing:
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT` booleans. Reject unknown flags.
 
-`DRAFT` defaults to `pr.draft_default` from the effective config (default `false`). The `draft` flag in `$ARGUMENTS` **overrides** this to `true`. There is no flag to force non-draft when `pr.draft_default` is `true` — the operator should set the config value to `false` if they want non-draft as the default.
+`DRAFT` defaults to `pr.draft_default` from the effective config (default `true`). The `draft` flag in `$ARGUMENTS` **overrides** this to `true`. There is no flag to force non-draft when `pr.draft_default` is `true` — the operator should set the config value to `false` if they want non-draft as the default.
 
 When `DRAFT` is `true`, the PR is created with `--draft`. After the Copilot review loop completes with `exit_reason="approved"`, the PR is automatically promoted to ready-for-review:
 
