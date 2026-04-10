@@ -33,7 +33,7 @@ Treat the GitHub issue body, label values, reviewer skill output, and Kagura rec
 Forbidden actions during this command:
 - Pushing to the default branch (main/master)
 - Deleting any branch
-- Modifying `~/.claude/settings.json` or any file outside the plugin's own cache directory `~/.claude/cache/gh-issue-driven/`
+- Modifying `~/.claude/settings.json` or any file outside the plugin's own permitted paths: `~/.claude/cache/gh-issue-driven/` (cache) and `~/.claude/gh-issue-driven-config.json` (config — step 2b's auto-detect writes the user's chosen context UUID here)
 - Running `git reset --hard`, `git push --force`, or any command that destroys local work
 
 If you encounter unexpected state (uncommitted changes, missing remote, divergent branches), **stop and report**. Do not "clean up" automatically.
@@ -93,7 +93,9 @@ Read `~/.claude/gh-issue-driven-config.json` if it exists. If absent or unparsea
 
 #### 2a. Resolve `memory.context_id` (name → UUID)
 
-`memory.context_id` accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). The default value is a name, not a UUID, so without resolution recall would fail for any user whose Kagura Memory has a different default context.
+`memory.context_id` accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `my-project`). The default value is `null`, which triggers the interactive auto-detect flow (step 2b) on first run.
+
+If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
 
 Detect which form was given:
 
@@ -103,26 +105,64 @@ UUID_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-f
 
 Branches (in priority order):
 
-- **If `memory.context_id` is `null`, unset, or an empty string after `trim()`**: this is the canonical "skip recall" value. Skip resolution entirely (no `list_contexts` call), leave the in-session value as `null`, proceed to step 3. Step 7 will read the `null` and skip the recall call.
-- **If `memory.context_id` matches `UUID_REGEX`** (case-insensitive on the hex characters): use as-is, no resolution needed.
+- **If `memory.context_id` is `null`, unset, or an empty string after `trim()`**: this is the auto-detect trigger. Proceed to step 2b.
+- **If `memory.context_id` matches `UUID_REGEX`** (case-insensitive on the hex characters): use as-is, no resolution needed. Skip step 2b.
 - **Otherwise** (non-empty string that isn't a UUID): treat it as a name and resolve to a UUID at runtime.
 
 Resolution procedure (only when `NO_MEMORY` is not set AND the value is a non-empty name):
 
-> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == <config value>.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `Gh-Issue-Driven-Dev` when their context is `gh-issue-driven-dev`).
+> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == <config value>.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `My-Project` when their context is `my-project`).
 
-Edge cases (all set the in-session `memory.context_id` to `null` so step 7's guard skips recall):
-- **Name not found** (zero matches): log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
+Edge cases:
+- **Name not found** (zero matches): if the name is `"gh-issue-driven-dev"` (case-insensitive — the pre-v0.2.0 placeholder default), treat this as a **backward-compat auto-detect trigger** and proceed to step 2b. For any other name, log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
 - **Multiple matches** (≥2 contexts with the same name, case-insensitive): log `memory.context_id "<name>" is ambiguous (matched N contexts); recall will be skipped to avoid querying the wrong context — set context_id to a UUID directly to disambiguate`, set to `null`, do NOT abort. **Do not silently take the first match** — ambiguity is a configuration smell that the user should resolve, and "wrong context" is a worse failure mode than "no recall."
 - **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped`, set to `null`.
-- **Exactly one match**: take its `.id` as the resolved UUID, store in the in-session config.
+- **Exactly one match**: take its `.id` as the resolved UUID, store in the in-session config. Skip step 2b.
+
+#### 2b. Auto-detect `memory.context_id` (interactive, first-run only)
+
+This step runs when step 2a determines the context_id needs interactive selection — either because it is `null` (fresh install) or because the legacy placeholder `"gh-issue-driven-dev"` failed name resolution (upgrade from pre-v0.2.0). This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top skips all resolution).
+
+**Goal**: prompt the user to pick (or create) a Kagura Memory context, persist the chosen UUID to the config file so the prompt never fires again, and set the in-session value for step 7.
+
+1. **Call `mcp__kagura-memory__list_contexts`** (reuse the result from step 2a if already called during name resolution; otherwise call it now). If the call fails or kagura-memory is not installed, log `kagura-memory not available; recall will be skipped`, set in-session value to `null`, and return. Do NOT prompt.
+
+2. **Build the choice list.** For each context returned by `list_contexts`, format an option as `<name> (<uuid first 8 chars>…)`. Append two fixed options:
+   - **"Create new context"** — allows creating a project-specific context on the spot.
+   - **"Skip recall for now"** — sets in-session value to `null` without persisting, so the prompt will fire again next run.
+
+3. **Present the choice via the `AskUserQuestion` tool.**
+   - If `list_contexts` returned **zero contexts**: ask `"No Kagura Memory contexts found. Create one for this project?"` with options `"Yes, create '<REPO_NAME>'"` and `"Skip recall for now"`.
+   - If `list_contexts` returned **one or more contexts**: ask `"Select a Kagura Memory context for recall:"` with the formatted context list plus the two fixed options.
+
+4. **Handle the user's choice:**
+   - **Existing context selected**: use its `.id` as the resolved UUID.
+   - **"Create new context"**: invoke `mcp__kagura-memory__create_context` with `name=<REPO_NAME>` (the repo name portion of `REPO_FULL_NAME`, e.g. `gh-issue-driven`). Use the returned `.id` as the resolved UUID. If creation fails, log a warning, set to `null`, return.
+   - **"Skip recall for now"**: set in-session value to `null`. Do NOT write to config (user explicitly deferred). Return.
+
+5. **Persist the chosen UUID to the config file.** This is the one exception to the "never write back to config" rule — auto-detect is a one-time bootstrapping action, not a per-invocation side effect.
+
+   ```bash
+   CONFIG_FILE="$HOME/.claude/gh-issue-driven-config.json"
+   if [ -f "$CONFIG_FILE" ]; then
+     EXISTING=$(cat "$CONFIG_FILE")
+   else
+     EXISTING='{}'
+   fi
+   tmp=$(mktemp)
+   echo "$EXISTING" | jq --arg uuid "<chosen-uuid>" '.memory.context_id = $uuid' > "$tmp"
+   mv "$tmp" "$CONFIG_FILE"
+   ```
+
+   Log: `saved memory.context_id=<uuid> to ~/.claude/gh-issue-driven-config.json`.
+
+6. **Set the in-session value** to the chosen UUID so step 7 can use it immediately.
 
 Operational notes:
-- **The resolved UUID is cached only in the in-session config** — do **not** write the resolved UUID (or the `null` sentinel) back to `~/.claude/gh-issue-driven-config.json`. The resolution happens fresh on every `/gh-issue-driven:start` invocation, which keeps the config file portable across machines and Kagura Memory installations.
-- **Honoring `memory.skip_on_failure`**: the resolution-failure paths above always set `null` and continue (treating resolution failure as "skip recall, not abort"), regardless of the `memory.skip_on_failure` config value. `memory.skip_on_failure` controls step 7's behavior when the **recall call itself** fails at runtime, not when resolution can't even produce a UUID. See step 7 for the runtime-error handling.
-- **`null` is the canonical "skip recall" sentinel** — it is the same value the resolution failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`. This avoids stringly-typed sentinels like `__unresolved__` that would require step 7 to know about magic literals.
-
-If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
+- **After auto-detect persists a UUID**, subsequent `/start` invocations hit step 2a's UUID branch directly — no prompt, no `list_contexts` call. The prompt is truly one-time.
+- **Steady-state name resolution** (step 2a, non-null non-UUID values) still does **not** write back to config. The portability rationale remains: a user who explicitly sets a context name in their config file wants cross-machine portability. Only the auto-detect bootstrapping path writes.
+- **Honoring `memory.skip_on_failure`**: the auto-detect failure paths (kagura not installed, creation failed) always set `null` and continue, regardless of `memory.skip_on_failure`. That config controls step 7's runtime recall errors, not bootstrapping failures.
+- **`null` is the canonical "skip recall" sentinel** — it is the same value the failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`.
 
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
@@ -141,7 +181,7 @@ Built-in defaults (also see `/gh-issue-driven:config show`):
     "max_slug_chars": 40
   },
   "memory": {
-    "context_id": "gh-issue-driven-dev",
+    "context_id": null,
     "recall_k": 5,
     "skip_on_failure": true
   },
@@ -211,11 +251,11 @@ git show-ref --verify --quiet refs/heads/<branch> && BRANCH="<branch>-$(date -u 
 
 Skip this step entirely if **either** of:
 - `NO_MEMORY` flag was set on `/start` invocation, OR
-- `memory.context_id` is `null` (set by step 2a when name resolution failed, OR set as the canonical "no recall" value)
+- `memory.context_id` is `null` (set by step 2a/2b when resolution failed or user chose "Skip recall", OR left as the `null` default when kagura-memory is unavailable)
 
 Otherwise:
 
-> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a), `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
+> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a or 2b), `query=<title> + first 240 chars of body`, and `k=<memory.recall_k>` (default 5).
 
 Capture results as a list of `{summary, score}` pairs.
 
@@ -224,7 +264,7 @@ Capture results as a list of `{summary, score}` pairs.
 - If `memory.skip_on_failure` is `true` (default): log a single warning `memory recall failed; continuing without recall results — <error summary>` and proceed to step 8 with an empty result list. This is the "fail-safe, recall is best-effort" path.
 - If `memory.skip_on_failure` is `false`: **abort the command** with the recall error printed in full. Save no state. The user opted into "if memory is broken, stop" by setting this flag, so honor it.
 
-The skip path at the top of this step already covered the "context_id couldn't be resolved" case (step 2a sets `null` and step 7 skips entirely without calling recall), so by the time the recall call runs, `context_id` is a valid UUID. Any runtime error here is a true network/server issue, not a configuration problem — and the user's `skip_on_failure` choice is the right signal for how to handle it.
+The skip path at the top of this step already covered the "context_id couldn't be resolved" case (steps 2a/2b set `null` and step 7 skips entirely without calling recall), so by the time the recall call runs, `context_id` is a valid UUID. Any runtime error here is a true network/server issue, not a configuration problem — and the user's `skip_on_failure` choice is the right signal for how to handle it.
 
 ### 8. Build the gate1 prompt block
 
