@@ -18,10 +18,10 @@ The following MUST stay English regardless of `lang`:
 - File paths and `summary_path` values written to / read from the state JSON (e.g. `~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md`) — these are filesystem identifiers, not localized prose
 - Bash command output captured into variables (`gh pr view --json ...` results, etc.) — these are read as machine-shaped data, never localized
 
-When `lang != "en"` AND step 5 builds the gate2 prompt block, append a language hint to the `## Your task` section in the prompt sent to **all *invoked* gate2 reviewers** — the 3 advisors in the default advisor-only mode, plus the binary gate skill when `gate2.binary_gate` is configured (so 3 or 4 reviewers depending on config). The append happens BEFORE the `## Verdict:` instruction. Derive the full language name from the `lang` code at runtime (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
+When `lang != "en"` AND step 5 builds the gate2 prompt block, append a language hint to the `## Your task` section in the prompt sent to **all *invoked* gate2 reviewers** — the 3 advisors in the default advisor-only mode, plus the binary gate skill when `gate2.binary_gate` is configured (so 3 or 4 reviewers depending on config). The append happens BEFORE the `## Verdict:` instruction. Include the raw `lang` value for determinism, with a best-effort human-readable name where recognizable (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
 ```
-Please respond in <language name>. The final `## Verdict:` line MUST stay English.
+Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.
 ```
 
 When `lang != "en"` AND step 14 produces Copilot loop progress narration, that narration is also in the language specified by `lang` — but the Copilot review COMMENTS the loop addresses are read from GitHub as-is (Copilot replies in English), and the commit messages produced in step 14.e MUST stay English (Layer A).

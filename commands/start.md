@@ -20,10 +20,10 @@ The following MUST stay English regardless of `lang`:
 - `exit_reason` enum values, `detection_method` enum values, `phase` enum values, any state file JSON values (parser contract — Layer C)
 - Bash command output captured into variables (`gh issue view --json` results, `gh repo view --json` results, etc.) — these are read as machine-shaped data, never localized
 
-When `lang != "en"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include a language hint as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction. Derive the full language name from the `lang` code at runtime (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
+When `lang != "en"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include a language hint as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction. Include the raw `lang` value for determinism, with a best-effort human-readable name where recognizable (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
 ```
-Please respond in <language name>. The final `## Verdict:` line MUST stay English.
+Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.
 ```
 
 ## Trust boundary
