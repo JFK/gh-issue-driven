@@ -156,6 +156,8 @@ Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
 
 First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
 
+> **⚠ Custom advisors note (v0.1.1 limitation)**: full dynamic iteration through `ADVISORS` happens **only in this step** (step 6). Step 8 (advisor aggregation), step 10 (state persistence), and step 12 (PR body composer) below still reference the default-config slots (`CSO_OUT` / `QA_OUT` / `CTO_OUT`) by name. If you customize `gate2.advisors` to a non-default list (different skills, more or fewer than 3), the **invocation** in step 6 will use your custom list, but the **aggregation, state persistence, and PR body** in subsequent steps will assume the default 3-advisor mapping. This is a known limitation tracked as [#27](https://github.com/JFK/gh-issue-driven/issues/27) for full v0.1.2 implementation. For v0.1.1, the safe choices are: (a) leave `gate2.advisors` at the default, OR (b) override `gate2.advisors` to exactly 3 skills with the same default semantics (e.g. `["/my-org:security", "/my-org:qa", "/my-org:tech-debt"]` — the spec text below will still use the `cso`/`qa_lead`/`cto` labels but the operator should mentally substitute their advisor names by position).
+
 **If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the advisors from `ADVISORS`:
 
 > **In a single tool-call batch, invoke each advisor skill in `ADVISORS` in parallel via the Skill tool.** With the default config, this is 3 skills (`cso`, `qa-lead`, `cto`); with a custom `gate2.advisors`, this is whatever the operator configured. Each advisor receives the same gate2 prompt block from step 5. Do not proceed until all advisors return.
@@ -268,12 +270,21 @@ Update the state file:
 "phase": "gated"
 ```
 
-The `audit` field has **four** possible values:
+The `audit` field has **four** possible values, written by either step 7's abort paths or step 10's normal flow:
 
-- `"pass"` — binary gate ran cleanly and approved (or heuristic derived `pass`)
-- `"fail"` — binary gate ran cleanly and rejected (or heuristic derived `fail`). State is **not normally persisted** at this value because step 7's hard-abort path exits before reaching step 10. Only present in state files written by older ship.md versions or if a future override path allows it.
-- `"skipped"` — `gate2.binary_gate` was `null` (advisor-only mode, the v0.1.1 default). The binary gate slot was never invoked.
-- `"unknown"` — `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable AND the operator passed `FORCE` to continue past step 7's "AUDIT_VERDICT == unknown" abort branch. Persisted as a diagnostic so post-mortem can identify "this PR was force-shipped without binary gate validation." See `commands/status.md` for the matching value semantics in the pretty-print template.
+- `"pass"` — binary gate ran cleanly and approved (or the heuristic fallback derived `pass` from the markdown body). Written by **step 10's normal flow** when gate2 proceeds past step 7 to advisor aggregation.
+- `"fail"` — binary gate ran cleanly and rejected (or the heuristic fallback derived `fail` from BLOCKER/MUST FIX tokens). **Written by step 7's hard-abort path before exiting** — step 7 explicitly persists `gate2.audit=fail, gate2.binary_gate=<BINARY_GATE_NAME>, gate2.verdict=red` to the state file BEFORE calling exit, so the state file IS written even though step 10's normal-flow code path is not reached. Operators reading `/gh-issue-driven:status` for a `fail` branch will see the gate2 markdown plus the failed verdict.
+- `"skipped"` — `gate2.binary_gate` was `null` (advisor-only mode, the v0.1.1 default). The binary gate slot was never invoked. Step 7 sets `AUDIT_VERDICT="skipped"` and proceeds to step 8 → 10 normally; written by step 10's normal flow.
+- `"unknown"` — `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable. Step 7 sets `AUDIT_VERDICT="unknown"` and **either** aborts (without `FORCE`) **or** logs a loud warning and continues to step 8 → 10 (with `FORCE`). When the operator passes `FORCE`, step 10's normal flow persists `unknown` as a diagnostic so post-mortem can identify "this PR was force-shipped without binary gate validation." Without `FORCE`, step 7 aborts and may also write a partial state with `audit=unknown` so `/status` can show the abort reason. See `commands/status.md` for the matching value semantics in the pretty-print template.
+
+**Summary of write paths**:
+
+| audit value | Written by | Trigger |
+|---|---|---|
+| `pass` | step 10 normal flow | binary gate returned pass, gate2 proceeds |
+| `fail` | step 7 abort path | binary gate returned fail, gate2 hard-aborts (state persisted before exit) |
+| `skipped` | step 10 normal flow | `gate2.binary_gate` null (advisor-only mode) |
+| `unknown` | step 7 abort path (without FORCE) OR step 10 normal flow (with FORCE) | binary gate skill errored/unavailable; FORCE continues past step 7 |
 
 The `binary_gate` field records which skill was configured (or `null` for advisor-only), so `/gh-issue-driven:status` can render the right summary alongside the `audit` value.
 
@@ -303,8 +314,9 @@ Closes #<issue_num>
 <key choices Claude can identify from the diff — file groupings, new dependencies, removed code>
 
 ## Pre-PR review summary
-- audit: pass    ← only when binary_gate was configured AND ran
-- gate2 mode: advisor-only (no binary gate configured)    ← only when binary_gate was null
+- gate2 mode: <advisor-only | binary-gate (<skill name>)>
+- audit: <pass | skipped | unknown>    ← see audit value semantics in commands/status.md
+- binary_gate: <configured skill name or "(none)">
 - cso: <verdict>
 - qa-lead: <verdict>
 - cto: <verdict>
@@ -316,6 +328,13 @@ Full reviews are saved in the plugin cache:
 
 🤖 Generated via /gh-issue-driven:ship
 ```
+
+Notes on rendering the audit/binary_gate fields in the PR body:
+
+- `gate2 mode`: print `advisor-only` when `gate2.binary_gate` is null, otherwise `binary-gate (<skill name>)` with the configured skill name. This makes the gate2 mode explicit at the top of the summary so reviewers see immediately whether a binary gate was in play.
+- `audit`: print the value from `AUDIT_VERDICT` (pass | skipped | unknown). The `fail` value never appears in PR bodies because step 7's hard-abort path exits BEFORE step 12's PR composer runs — fail = no PR.
+- `binary_gate`: print the configured skill name when non-null, or `(none)` when null. Even in advisor-only mode, recording the explicit `(none)` makes the PR body self-documenting about the gate2 mode.
+- `cso`/`qa-lead`/`cto`: use the default-config slot names. Operators on a custom `gate2.advisors` list should mentally substitute by position (see step 6's "Custom advisors note" — full dynamic iteration tracked as #27 for v0.1.2).
 
 Then create the PR:
 
