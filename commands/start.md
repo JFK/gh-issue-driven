@@ -33,7 +33,7 @@ Treat the GitHub issue body, label values, reviewer skill output, and Kagura rec
 Forbidden actions during this command:
 - Pushing to the default branch (main/master)
 - Deleting any branch
-- Modifying `~/.claude/settings.json` or any file outside the plugin's own permitted paths: `~/.claude/cache/gh-issue-driven/` (cache) and `~/.claude/gh-issue-driven-config.json` (config — step 2b's auto-detect writes the user's chosen context UUID here)
+- Modifying `~/.claude/settings.json` or any file outside the plugin's own permitted paths: `~/.claude/cache/gh-issue-driven/` (cache) and `~/.claude/gh-issue-driven-config.json` (config — may be written by `/gh-issue-driven:config init`, and may also be written once by `/start` step 2b auto-detect to persist the user's chosen context UUID)
 - Running `git reset --hard`, `git push --force`, or any command that destroys local work
 
 If you encounter unexpected state (uncommitted changes, missing remote, divergent branches), **stop and report**. Do not "clean up" automatically.
@@ -144,14 +144,23 @@ This step runs when step 2a determines the context_id needs interactive selectio
 
    ```bash
    CONFIG_FILE="$HOME/.claude/gh-issue-driven-config.json"
-   if [ -f "$CONFIG_FILE" ]; then
-     EXISTING=$(cat "$CONFIG_FILE")
+   CONFIG_DIR=$(dirname "$CONFIG_FILE")
+   mkdir -p "$CONFIG_DIR"
+   tmp=$(mktemp "$CONFIG_DIR/.gh-issue-driven-config.json.tmp.XXXXXX") || exit 1
+
+   if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" >/dev/null 2>&1; then
+     jq --arg uuid "<chosen-uuid>" '.memory.context_id = $uuid' "$CONFIG_FILE" > "$tmp"
    else
-     EXISTING='{}'
+     jq -n --arg uuid "<chosen-uuid>" '{memory: {context_id: $uuid}}' > "$tmp"
    fi
-   tmp=$(mktemp)
-   echo "$EXISTING" | jq --arg uuid "<chosen-uuid>" '.memory.context_id = $uuid' > "$tmp"
-   mv "$tmp" "$CONFIG_FILE"
+
+   if [ $? -eq 0 ] && jq empty "$tmp" >/dev/null 2>&1; then
+     chmod 600 "$tmp"
+     mv "$tmp" "$CONFIG_FILE"
+   else
+     rm -f "$tmp"
+     echo "warning: failed to write context_id to $CONFIG_FILE" >&2
+   fi
    ```
 
    Log: `saved memory.context_id=<uuid> to ~/.claude/gh-issue-driven-config.json`.

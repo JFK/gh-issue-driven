@@ -9,7 +9,7 @@ The plugin's command bodies tell Claude to:
 - Run `gh`, `git`, and reviewer-skill commands
 - Edit local files (only inside the current repo, only when applying Copilot review feedback during the `ship` loop)
 - Write to `~/.claude/cache/gh-issue-driven/` (state files and reviewer output)
-- Optionally write `~/.claude/gh-issue-driven-config.json` (only via `/gh-issue-driven:config init`, only if it doesn't already exist)
+- Optionally write `~/.claude/gh-issue-driven-config.json` (via `/gh-issue-driven:config init` when the file doesn't exist, or once by `/gh-issue-driven:start` step 2b auto-detect to persist the user's chosen Kagura Memory context UUID)
 
 All other writes are forbidden and the command bodies state this explicitly.
 
