@@ -11,7 +11,7 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, produce all **operator-facing ephemeral output** in Japanese — including the recap text in step 16, AskUserQuestion 文言, doctor diagnostics referenced in error paths, prose narration Claude generates between steps, and the gate1 prompt sent to reviewer skills. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 16, AskUserQuestion 文言, doctor diagnostics referenced in error paths, prose narration Claude generates between steps, and the gate1 prompt sent to reviewer skills. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
 
 The following MUST stay English regardless of `lang`:
 
@@ -20,13 +20,11 @@ The following MUST stay English regardless of `lang`:
 - `exit_reason` enum values, `detection_method` enum values, `phase` enum values, any state file JSON values (parser contract — Layer C)
 - Bash command output captured into variables (`gh issue view --json` results, `gh repo view --json` results, etc.) — these are read as machine-shaped data, never localized
 
-When `lang == "ja"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include this line as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction:
+When `lang != "en"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include a language hint as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction. Include the raw `lang` value for determinism, with a best-effort human-readable name where recognizable (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
 ```
-Please respond in Japanese. The final `## Verdict:` line MUST stay English.
+Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.
 ```
-
-This is a minimal v0.1.1 implementation (Option A). The full 3-layer policy with template-level localization is tracked as #19 (v0.1.2).
 
 ## Trust boundary
 
@@ -414,7 +412,7 @@ Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Im
 
 #### 17d. Respect `lang` setting
 
-When `lang == "ja"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in Japanese. The skill names (`/feature-dev`, `/simplify`, `/ship`) stay as-is (they are command identifiers, not prose).
+When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/simplify`, `/ship`) stay as-is (they are command identifiers, not prose).
 
 Stop here. Do not proceed further. The user will implement the change manually and then invoke `/gh-issue-driven:ship`.
 

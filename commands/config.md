@@ -14,17 +14,15 @@ This command is **mostly read-only**. The single mutating action is `init`, whic
 
 ### `lang`
 
-Output language for **operator-facing ephemeral output** — the recap text in `start.md` step 16, the gate prompts shown in the terminal, the AskUserQuestion 文言, the doctor diagnostics, the status pretty-print, and any prose narration Claude produces between steps. Accepts `"en"` (default) or `"ja"`.
+Output language for **operator-facing ephemeral output** — the recap text in `start.md` step 16, the gate prompts shown in the terminal, the AskUserQuestion 文言, the doctor diagnostics, the status pretty-print, and any prose narration Claude produces between steps. Accepts any language identifier (e.g. `"en"`, `"ja"`, `"ko"`, `"de"`). Default `"en"`. Claude translates on the fly using its native multilingual ability — no translation table or message catalog is involved.
 
-This is a minimal v0.1.1 implementation (Option A from the dogfooding session for #15). The full 3-layer i18n policy is tracked as #19 (v0.1.2). The minimal implementation honors the same 3-layer policy at low cost:
+The 3-layer policy governs what gets localized:
 
 - **Layer A — Durable artifacts (always English)**: PR title/body, commit messages, branch names, state JSON values. NEVER localized regardless of `lang`.
-- **Layer B — Operator-facing ephemeral (configurable)**: this is what `lang` controls. When `lang == "ja"`, Claude produces these in Japanese on the fly using its native multilingual ability. The templates in command files stay English — Claude translates them at execution time.
+- **Layer B — Operator-facing ephemeral (configurable)**: this is what `lang` controls. When `lang != "en"`, Claude produces these in the specified language on the fly. The templates in command files stay English — Claude translates them at execution time.
 - **Layer C — Parser tokens (always English-strict)**: `## Verdict: green|yellow|red|decline|pass|fail`, `exit_reason` enum values (`silent_no_op`, `no_actionable_feedback`, `approved`, `max_loops`, `tests_failed`), `detection_method` enum values (`requested_reviewers`, `latest_reviews`, `neither`). NEVER localized — these are parser contract.
 
-When `lang == "ja"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a final line `Please respond in Japanese.` appended. Reviewer responses then naturally produce Japanese review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English).
-
-What v0.1.1 minimal does NOT do (left for v0.1.2 / #19): no translation table, no message catalog, no CI parity lint, no source-level localization of templates. The English templates in command files remain visible to anyone reading the spec; only the runtime output is localized.
+When `lang != "en"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a language hint appended that includes the raw `lang` value for determinism, with a best-effort human-readable name (e.g. `Please respond in Japanese (日本語) (lang: ja).`). The raw value ensures correctness even for BCP-47 tags like `zh-Hans` or `pt-BR` where the human-readable name may be ambiguous. Reviewer responses then naturally produce localized review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English). This is best-effort — reviewer skills are separate plugins and may occasionally respond in English regardless of the hint.
 
 ### `gate2.binary_gate`
 

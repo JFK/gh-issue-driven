@@ -11,7 +11,7 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, produce all **operator-facing ephemeral output** in Japanese — including the recap text in step 13, AskUserQuestion prompts, error messages, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 13, AskUserQuestion prompts, error messages, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
 
 The following MUST stay English regardless of `lang`:
 
@@ -21,8 +21,6 @@ The following MUST stay English regardless of `lang`:
 - CHANGELOG.md entries (durable artifact — Layer A)
 - All JSON values in `plugin.json` and `marketplace.json` (durable artifact — Layer A)
 - Bash command output captured into variables (`gh api` results, etc.) — machine-shaped data, never localized
-
-This is a minimal v0.1.1 implementation (Option A). The full 3-layer policy with template-level localization is tracked as #19 (v0.1.2).
 
 ## Trust boundary
 
