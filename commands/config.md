@@ -46,6 +46,25 @@ If you maintain `claude-c-suite-plugin` itself, set `gate2.binary_gate: "/claude
 
 In advisor-only mode, the 3-advisor aggregate is the gate2 signal. All three returning green proceeds; any yellow asks for confirmation; any red aborts unless `--force` is set.
 
+### `review.provider`
+
+Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalone `/gh-issue-driven:review` command. Accepts one of four values:
+
+| Value | Behavior |
+|---|---|
+| `"copilot"` (default) | GitHub Copilot — async poll-based iterative loop (existing behavior). Uses `copilot.*` config for tuning. |
+| `"code-review"` | `/code-review` (official Claude Code plugin) — in-turn single-shot invocation. Posts a PR comment with findings. No polling loop. |
+| `"both"` | Runs `/code-review` first (in-turn, single-shot), then Copilot loop (async, iterative). Sequential, not parallel — `/code-review` completes before Copilot starts. |
+| `"none"` | Skip post-PR review entirely. Equivalent to the legacy `no-copilot` flag, but config-level. |
+
+**Interaction with `copilot.enabled`**: When `review.provider` is set, it takes precedence over `copilot.enabled`. The `copilot.enabled` field is retained for backward compatibility but is only consulted when `review.provider` is absent from the user config. New users should use `review.provider` instead.
+
+**Interaction with the `no-copilot` flag**: The `no-copilot` flag on `/gh-issue-driven:ship` overrides `review.provider` to `"none"` for that invocation only. It does not modify the config file.
+
+**`/code-review` requirements**: The `/code-review` plugin must be installed. It requires an existing PR (invoked after step 12). It posts a PR comment rather than a structured verdict — the review command reads the comment and extracts actionable findings. If `/code-review` is not installed and the provider is `"code-review"` or `"both"`, a warning is logged and the `/code-review` portion is skipped (Copilot still runs if provider is `"both"`).
+
+**Draft PR compatibility**: `/code-review` works on draft PRs (reads `gh pr diff` directly). Copilot does NOT review draft PRs (see memory `85c3fd82`). When provider is `"both"` and the PR is draft, `/code-review` runs but the Copilot loop will hit `silent_no_op` unless the PR is promoted to ready-for-review first.
+
 ### `memory.context_id`
 
 Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). Name matching is **case-insensitive** (so `Gh-Issue-Driven-Dev` and `gh-issue-driven-dev` both resolve to the same context). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
@@ -103,6 +122,9 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     ],
     "yellow_continue_requires_confirm": true,
     "run_tests_before_gate2": false
+  },
+  "review": {
+    "provider": "copilot"
   },
   "copilot": {
     "enabled": true,

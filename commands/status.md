@@ -70,13 +70,28 @@ PR      <pr_url>  (#<number>, opened <relative time ago>)
         Live state: <reviewDecision from gh pr view>
         ... or ... (no PR yet)
 
-Copilot Loop <loops_run>/<max_loops>, last state: <last_state>
-        Detection: <detection_method>   ← (omit line if absent in state)
-        Exit:      <exit_reason>        ← (omit line if absent / loop still in progress)
+Review  provider: <review.provider>
+        Total loops: <review.total_loops_run>
+        Providers completed: <review.providers_completed>
+        <if review.code_review exists:>
+        /code-review: <findings_addressed> addressed, <findings_skipped> skipped (ran <relative time ago>)
+        <if review.copilot exists:>
+        Copilot: <copilot.loops_run>/<copilot.max_loops>, last state: <copilot.last_state>
+        Detection: <copilot.detection_method>   ← (omit line if absent in state)
+        Exit:      <copilot.exit_reason>        ← (omit line if absent / loop still in progress)
         Last polled: <relative time>
 ```
 
 The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`. When `exit_reason == "silent_no_op"`, also append a one-line hint pointing at `/gh-issue-driven:doctor` so the operator can confirm Mode A or upgrade gh.
+
+#### Review block — v1/v2 schema compatibility
+
+The post-PR review state has two schema versions:
+
+- **v2** (v0.2.0+): `review` is a top-level block with `provider`, `total_loops_run`, `providers_completed`, and optional `copilot`/`code_review` sub-blocks.
+- **v1** (v0.1.x): `copilot` is a top-level block with `loops_run`, `max_loops`, `last_state`, etc. No `review` block exists.
+
+Reader logic: if `review` exists, use it directly. Otherwise, synthesize from legacy `copilot` block: `{ provider: "copilot", total_loops_run: copilot.loops_run, providers_completed: ["copilot"], copilot: { ...legacy fields } }`. Skip any field that is absent. This allows `/status` to render both old and new state files without migration.
 
 #### `gate2.audit` value semantics
 
@@ -116,7 +131,7 @@ If `$ARGUMENTS == "all"`:
 2. For each file, parse the JSON and print one row:
 
    ```
-   <branch> | <phase> | gate1=<verdict> | gate2=<aggregate> | pr=#<num or ->
+   <branch> | <phase> | gate1=<verdict> | gate2=<aggregate> | review=<provider> | pr=#<num or ->
    ```
 
 3. Sort by `started_at` descending.
