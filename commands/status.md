@@ -6,6 +6,20 @@ arguments:
     required: false
 ---
 
+## Output language
+
+Load `lang` just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"` if the file is missing, unparseable, or doesn't set `lang`). status.md is read-only and short, so this is a minimal one-key read — no full deep-merge of all config defaults is needed for this command.
+
+When `lang == "ja"`, produce the pretty-printed status block in Japanese — the section labels (`Issue`, `Branch`, `Phase`, `Gate1`, `Gate2`, `PR`, `Copilot Loop`, `Exit`, `Detection`, `Last polled`) stay English (they map directly to state JSON field names), but the prose around them, the silent_no_op hint footer, and the `all` mode footer line are localized.
+
+What stays English regardless of `lang`:
+
+- State JSON field names and enum values (`green`, `yellow`, `red`, `pass`, `fail`, `silent_no_op`, etc.) — Layer C
+- Branch names, PR URLs, file paths, summary_path values
+- The verdict and phase tokens themselves
+
+This is a minimal v0.1.1 implementation (Option A). The full 3-layer policy with template-level localization is tracked as #19 (v0.1.2).
+
 ## Trust boundary
 
 **Read-only.** This command must not modify any state file, never call `gh pr edit` or any mutating gh subcommand, and never delete cache entries. It may call `gh pr view` (read-only) to fetch the live `reviewDecision`.
@@ -47,10 +61,11 @@ Gate1   <verdict>  (via /<reviewer>[, escalated to /ceo])
         Full output: <summary_path>
 
 Gate2   <aggregate verdict>
-        - audit:    <pass|fail>
-        - cso:      <verdict>
-        - qa-lead:  <verdict>
-        - cto:      <verdict>
+        - audit:       <pass|fail|skipped|unknown>   ← see audit value semantics below
+        - binary_gate: <skill name or "(none)">  ← omit this line if state lacks the field (older state files)
+        - cso:         <verdict>
+        - qa-lead:     <verdict>
+        - cto:         <verdict>
         Full output: <summary_path>
 
 PR      <pr_url>  (#<number>, opened <relative time ago>)
@@ -64,6 +79,19 @@ Copilot Loop <loops_run>/<max_loops>, last state: <last_state>
 ```
 
 The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`. When `exit_reason == "silent_no_op"`, also append a one-line hint pointing at `/gh-issue-driven:doctor` so the operator can confirm Mode A or upgrade gh.
+
+#### `gate2.audit` value semantics
+
+The `audit` field in the persisted state can take **four** values:
+
+| Value | Meaning |
+|---|---|
+| `pass` | Binary gate skill ran cleanly and returned `## Verdict: pass` (or the heuristic derived `pass` from the markdown body). The gate2 binary check succeeded. State written by ship.md step 10's normal flow. |
+| `fail` | Binary gate skill ran cleanly and returned `## Verdict: fail` (or the heuristic derived `fail` from BLOCKER/MUST FIX tokens). **Hard release block** — even FORCE cannot override. **State IS persisted** by ship.md step 7's hard-abort path: step 7 explicitly writes `gate2.audit=fail, gate2.binary_gate=<skill>, gate2.verdict=red` to the state file BEFORE calling exit, so `/status` can show the failed verdict and the gate2 markdown after the abort. This is a partial step-7 write, not waiting for step 10. |
+| `skipped` | `gate2.binary_gate` was `null` (advisor-only mode, the v0.1.1 default). The binary gate slot was never invoked. The gate2 verdict is determined purely by the advisor aggregate. This is the common case for any non-claude-c-suite-plugin user. State written by step 10's normal flow. |
+| `unknown` | `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable. **Two write paths**: (a) without FORCE, ship.md step 7 aborts and writes a partial state with `audit=unknown` so `/status` can show the abort reason; (b) with FORCE, step 7 logs a loud warning and proceeds to step 10's normal flow which persists `audit=unknown` as a diagnostic. Either way, `unknown` means "the binary gate didn't actually validate the PR — either it wasn't run (the skill broke) or the operator force-overrode it." If you see `unknown` in production state, the binary gate skill probably had a bug or wasn't installed. Investigate. |
+
+If the state file lacks the `audit` field entirely (older state files written before the binary gate refactor), render as `(absent)` and don't fail.
 
 For the live PR state, run:
 

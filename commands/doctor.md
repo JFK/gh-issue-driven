@@ -6,6 +6,20 @@ arguments:
     required: false
 ---
 
+## Output language
+
+Read `lang` from the effective config (default `"en"`). When `lang == "ja"`, produce all diagnostic output in Japanese — the ✅/⚠️/❌ check labels themselves stay as the literal emoji, but the descriptions, fail reasons, and `try:` hint text are localized. The Copilot review setup section's AskUserQuestion options are also localized when `lang == "ja"`.
+
+What stays English regardless of `lang`:
+
+- File paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`)
+- The cache file's JSON content and the state schema field names
+- The `try:` hint commands themselves (e.g. `apt install jq`, `/plugin install ...`) — only the surrounding prose is localized
+
+The Configuration file health check at step 11 reads `~/.claude/gh-issue-driven-config.json` as part of its informational scan; doctor's own `lang` read in this section is just-in-time, separate from step 11. (Same just-in-time pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`.)
+
+This is a minimal v0.1.1 implementation (Option A). The full 3-layer policy with template-level localization is tracked as #19 (v0.1.2).
+
 ## Trust boundary
 
 This command is **mostly read-only**. It must not modify any file outside its **single permitted file target**:
@@ -188,14 +202,31 @@ Otherwise:
 7. **Reviewer plugin: `claude-c-suite`**
    - Probe: search for any of `~/.claude/plugins/cache/claude-c-suite*` (glob), or attempt a no-op invocation of the Skill tool with `/claude-c-suite:ask` and detect "skill not found".
    - Warn if missing → `gate1/gate2 will degrade to advisory-only`.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add JFK/claude-c-suite-plugin
+             /plugin install claude-c-suite@claude-c-suite
+     ```
 
 8. **Reviewer plugin: `claude-phd-panel`** (optional but recommended for v0.2 features)
    - Probe via plugin cache glob.
    - Warn if missing — does not block v0.1.0 functionality.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add JFK/claude-phd-panel-plugin
+             /plugin install claude-phd-panel@claude-phd-panel
+     ```
 
 9. **Memory plugin: `kagura-memory`**
    - Probe: check if the `mcp__kagura-memory__recall` tool is callable, OR glob `~/.claude/plugins/cache/*kagura-memory*`.
    - Warn if missing → `recall and session-start/summary will be skipped`.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add kagura-ai/memory-cloud
+             /plugin install kagura-memory@kagura-memory-cloud
+     ```
+
+> Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. The README's [Install section](../README.md#60-second-quickstart) is the canonical place where the marketplace-name-vs-repo-slug distinction is documented; this `try:` block intentionally mirrors that exact form. If the exact `<plugin>@<marketplace>` syntax differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 

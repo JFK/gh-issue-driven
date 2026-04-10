@@ -1,12 +1,14 @@
 # gh-issue-driven
 
+> ⚠️ **Alpha (v0.1.x)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています (PR #15 はこのプラグインが自分自身をレビューして merge されました) が、いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
+
 > **GitHub issue 駆動開発のための2フェーズオーケストレータ。マルチレビュアによる事前レビューゲートと Copilot レビュー自動ループ付き。**
 
 `gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を1本の再現可能なワークフローに変えます：
 
 1. **`/gh-issue-driven:start <issue>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate1**（設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション）を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。
 2. _（あなたがコードを書く）_
-3. **`/gh-issue-driven:ship`** — **gate2**（audit + cso + qa-lead + cto を並列実行）、PR 作成、**GitHub Copilot レビューループ**を最大5回まで自動実行（PR が approve されるか、対応すべき fb がなくなるまで）。
+3. **`/gh-issue-driven:ship`** — **gate2**（デフォルトは `cso` + `qa-lead` + `cto` の advisor 並列実行。プラグインメンテナは `gate2.binary_gate` で optional な hard `pass`/`fail` バイナリゲートを追加可能）、PR 作成、**GitHub Copilot レビューループ**を最大5回まで自動実行（PR が approve されるか、対応すべき fb がなくなるまで）。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、issue ごとの学びが永続化されます。
 
@@ -21,14 +23,27 @@
 #   これを有効にすると、Copilot レビューループが gh CLI のバージョンに依存せず動く。
 #   有効化しない場合は gh CLI >= 2.88.0 が必要 (下記「必要なバージョン」参照)。
 
-# Claude Code セッション内:
+# Claude Code セッション内 — プラグイン install:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
+
+# 推奨 companion プラグイン (無くても degrade して動作)
+# 注: install target の `@<marketplace>` は marketplace.json の name フィールド (GitHub repo slug ではない)
+
+/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 レビュア
+/plugin install claude-c-suite@claude-c-suite
+
+/plugin marketplace add kagura-ai/memory-cloud       # session-start/summary + recall
+/plugin install kagura-memory@kagura-memory-cloud
+
+# Optional (v0.2 の深掘りレビュー用):
+/plugin marketplace add JFK/claude-phd-panel-plugin
+/plugin install claude-phd-panel@claude-phd-panel
 
 # 任意のリポジトリで:
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
 /gh-issue-driven:start 142       # フェーズ1
-# ... 実装 ...
+# ... 実装、その後 /simplify で diff レビュー ...
 /gh-issue-driven:ship            # フェーズ2
 ```
 
@@ -61,16 +76,31 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ### Gate 2 — PR 作成直前のレビューバッテリー（`/gh-issue-driven:ship`）
 
-実装の **後**、PR 作成の **前** に走ります。4つのレビュアが **1ターン内で並列発火**：
+実装の **後**、PR 作成の **前** に走ります。デフォルトでは **3つの advisor reviewer** が 1ターン内で並列発火 (advisor-only mode)：
 
 | レビュア | 役割 | verdict 型 |
 |---|---|---|
-| `/claude-c-suite:audit` | 規約遵守監査 | **Binary**（`pass`/`fail`）— ハードゲート |
 | `/claude-c-suite:cso` | セキュリティ | Advisory（`green`/`yellow`/`red`） |
 | `/claude-c-suite:qa-lead` | テスト網羅 | Advisory |
 | `/claude-c-suite:cto` | 技術負債 | Advisory |
 
-**`/audit` はハードゲート**。fail なら `force` でも PR 作成を中止。advisor 3つは集約：いずれか red → red、yellow → yellow、それ以外 green。
+3つの advisor verdict が集約される：いずれか red → red、yellow → yellow、それ以外 green。verdict handling は gate1 と同じ (green → 続行 / yellow → 確認 / red → abort、`force` で override)。
+
+#### Optional binary gate (default off)
+
+「fail なら `force` でも block されるハードバイナリゲート」が欲しいプラグインメンテナは、`~/.claude/gh-issue-driven-config.json` の `gate2.binary_gate` に skill 名を設定できます：
+
+```json
+{
+  "gate2": {
+    "binary_gate": "/claude-c-suite:audit"
+  }
+}
+```
+
+設定すると、その skill が advisor 3つに加えて 4つ目のレビュアとして並列発火し、その verdict (`pass`/`fail`) がハードリリースゲートとして読まれる。
+
+デフォルトは `null` (binary gate なし)。以前のバージョンは `/claude-c-suite:audit` がデフォルトだったが、これは `claude-c-suite-plugin` 自身の規約遵守チェッカーであり、他のプラグイン (gh-issue-driven 含む) では script が存在せずエラーで終わる → 全 `/ship` invocation を block していた。v0.1.1 (#26) で修正。
 
 ### Verdict 行の規約
 
@@ -142,14 +172,15 @@ Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードでき�
 
 > Invoke `/claude-c-suite:ask` via the Skill tool, passing the prompt block built in step N as input.
 
-並列レビュアの場合：
+並列レビュアの場合 (gate2 で invoke する skill 数は `gate2.binary_gate` の設定で変わる):
 
-> In a single tool-call batch, invoke all four reviewer skills in parallel via the Skill tool: `/claude-c-suite:audit`, `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`.
+> In a single tool-call batch, invoke gate2 reviewer skills in parallel via the Skill tool. **デフォルト (advisor-only mode、`gate2.binary_gate: null`)**: 3 advisor skill — `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`。**`gate2.binary_gate` が skill 名 (例: `/claude-c-suite:audit` for plugin maintainers) に設定されている場合**: 4 skill — configured binary gate skill + 3 advisor。
 
 skill が見つからない場合の degrade：
-- レビュア missing → そのゲートスロットは `unknown`、警告を出して継続
-- `/audit` missing（ハードゲート）→ `force` フラグが必要
-- `kagura-memory` missing → recall と session-start/summary をスキップ
+- advisor reviewer missing → そのゲートスロットは `unknown`、警告を出して継続
+- binary gate skill missing (`gate2.binary_gate` 設定時のみ該当) → `unknown` 扱い、`force` で続行可
+- `gate2.binary_gate` が `null` (デフォルト) → binary gate なし、advisor-only mode、`force` 不要
+- `kagura-memory` missing → recall と session-start/summary をスキップ (`memory.context_id` resolution 失敗時は warning 1行を出す)
 
 `/gh-issue-driven:doctor` で何が入っているか確認できます。
 
@@ -173,7 +204,7 @@ skill が見つからない場合の degrade：
 | `default_branch` | `main` | base ブランチ |
 | `gate1.primary` | `/claude-c-suite:ask` | gate1 の最初のレビュア |
 | `gate1.fallback` | `/claude-c-suite:ceo` | decline 時のエスカレーション先 |
-| `gate2.binary_gate` | `/claude-c-suite:audit` | override 不可ハードゲート |
+| `gate2.binary_gate` | `null` (off) | optional な override 不可バイナリゲート。skill 名 (例: `/claude-c-suite:audit`) を設定すると有効化 |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
 | `copilot.max_loops` | `5` | 最大ループ数 |
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
@@ -200,13 +231,28 @@ skill が見つからない場合の degrade：
 
 | ツール | 必須 | 用途 |
 |---|---|---|
-| `gh` v2.88.0+ | 必須 | issue/PR 操作、Copilot reviewer |
+| `gh` (任意のバージョン) | 必須 | issue/PR 操作。**Mode A**: 任意のバージョンで OK。**Mode B**: v2.88.0+ 必須 (本物の `--add-reviewer @copilot` サポートは2026年3月に追加 — Mode A vs Mode B の区別は上記「必要なバージョン」を参照)。 |
 | `git` | 必須 | ブランチ操作 |
 | `jq` | 必須 | JSON パース |
 | `python3` | 推奨 | 一部ヘルパー |
 | [`claude-c-suite`](https://github.com/JFK/claude-c-suite-plugin) | 推奨 | gate1/gate2 レビュア（無くても degrade して動く） |
 | [`claude-phd-panel`](https://github.com/JFK/claude-phd-panel-plugin) | optional | v0.2 の深掘りレビュー用 |
-| [`kagura-memory`](https://github.com/JFK/memory-cloud) | optional | session-start/summary と recall |
+| [`kagura-memory`](https://github.com/kagura-ai/memory-cloud) | optional | session-start/summary と recall |
+
+---
+
+## Limitations / 既知の制限事項
+
+`gh-issue-driven` は alpha software (v0.1.x) です。orchestrated flow は real PR で end-to-end 動作しています (このプラグインは `JFK/gh-issue-driven` で自分自身の PR を ship した実績あり) が、v0.1.1 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
+
+- **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
+- **resume mode 無し** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — `/ship` が loop の途中で exit した場合 (test failure, 手動中断, silent_no_op)、再実行すると現在は resume せずに全 gate が再実行される。
+- **`memory.context_id` のデフォルトは placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — このリリースで実装) — `memory.context_id` は UUID または context name (case-insensitive、実行時に `list_contexts` で UUID 解決) のどちらも受け付けるようになった。デフォルト値は `gh-issue-driven-dev` という honest な plugin-named placeholder。kagura-memory を install しているユーザーは、自分の環境の有効な context 名 (case-insensitive match) または UUID に上書きすること。kagura-memory を使わないユーザーはこのフィールドを無視できる (recall は自動 skip)。Resolution failure (name not found / ambiguous / list_contexts errors) は **warning を1行出して** recall をスキップし `/start` は続行する (warning があるので silent ではない)。**現状 `/gh-issue-driven:doctor` が configured context_id の解決を validate しない**のは v0.1.2 の follow-up として追跡。
+- **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない (v0.2.0+ で [#3](https://github.com/JFK/gh-issue-driven/issues/3) と一緒に対応予定)。
+- **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。v0.1.1 hardening tail の follow-up として filed。
+- **PR body の secret-like 値を自動検出しない** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — プラグインは commit message と diff context から PR body を生成する。v0.2.0 で secret-scan abort を追加予定。
+
+既知 issue の全リストは [v0.1.1](https://github.com/JFK/gh-issue-driven/milestone/1)、[v0.1.2](https://github.com/JFK/gh-issue-driven/milestone/4)、[v0.2.0](https://github.com/JFK/gh-issue-driven/milestone/2) の milestone を参照してください。
 
 ---
 

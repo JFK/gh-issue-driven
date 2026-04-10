@@ -1,12 +1,14 @@
 # gh-issue-driven
 
+> ⚠️ **Alpha (v0.1.x)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end (PR #15 was merged via this plugin reviewing itself), but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
+
 > **Two-phase orchestrator for GitHub-issue-driven development with multi-reviewer pre-PR gates and a Copilot review loop.**
 
 `gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable workflow:
 
 1. **`/gh-issue-driven:start <issue>`** — fetch the issue, recall related past work from Kagura Memory, run a **gate1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation.
 2. _(you write the code)_
-3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (audit + cso + qa-lead + cto), create the PR, and drive a **GitHub Copilot review loop** of up to 5 iterations until the PR is approved or no actionable feedback remains.
+3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate` for plugin maintainers who want a hard `pass`/`fail` check), create the PR, and drive a **GitHub Copilot review loop** of up to 5 iterations until the PR is approved or no actionable feedback remains.
 
 The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary`, so each issue's learnings get persisted for future recall.
 
@@ -21,14 +23,28 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 #   This makes the Copilot review loop work on any gh CLI version.
 #   Without it, you need gh CLI >= 2.88.0 (see Requirements below).
 
-# In any Claude Code session:
+# In any Claude Code session — install the plugin:
 /plugin marketplace add JFK/gh-issue-driven
 /plugin install gh-issue-driven
+
+# Recommended companion plugins (gracefully degrade if missing).
+# Note: the install target's `@<marketplace>` is the marketplace NAME from
+# its marketplace.json, not the GitHub repo slug.
+
+/plugin marketplace add JFK/claude-c-suite-plugin    # gate1 + gate2 reviewers
+/plugin install claude-c-suite@claude-c-suite
+
+/plugin marketplace add kagura-ai/memory-cloud       # session-start/summary + recall
+/plugin install kagura-memory@kagura-memory-cloud
+
+# Optional (reserved for v0.2 deep-review modes):
+/plugin marketplace add JFK/claude-phd-panel-plugin
+/plugin install claude-phd-panel@claude-phd-panel
 
 # In a repo:
 /gh-issue-driven:doctor          # one-time environment check (will prompt to confirm Step 0)
 /gh-issue-driven:start 142       # phase 1
-# ... implement ...
+# ... implement, then /simplify to review the diff ...
 /gh-issue-driven:ship            # phase 2
 ```
 
@@ -61,16 +77,31 @@ Runs **after** the issue is fetched and recall is done, **before** the branch is
 
 ### Gate 2 — Pre-PR review battery (`/gh-issue-driven:ship`)
 
-Runs **after** the implementation, **before** the PR is created. Four reviewers fire **in parallel** in a single Claude turn:
+Runs **after** the implementation, **before** the PR is created. By default, **3 advisor reviewers** fire in parallel in a single Claude turn (advisor-only mode):
 
 | Reviewer | Role | Verdict type |
 |---|---|---|
-| `/claude-c-suite:audit` | Conformance audit | **Binary** (`pass`/`fail`) — hard gate |
 | `/claude-c-suite:cso` | Security | Advisory (`green`/`yellow`/`red`) |
 | `/claude-c-suite:qa-lead` | Test coverage | Advisory |
 | `/claude-c-suite:cto` | Tech debt | Advisory |
 
-**`/audit` is a hard gate.** If it returns fail, PR creation is blocked even with `force`. The three advisors are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1.
+The three advisor verdicts are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1 (green → continue, yellow → confirm, red → abort unless `force`).
+
+#### Optional binary gate (off by default)
+
+Plugin maintainers who want a **hard binary gate** (a `pass`/`fail` reviewer that blocks PR creation even with `force`) can configure one via `gate2.binary_gate` in `~/.claude/gh-issue-driven-config.json`:
+
+```json
+{
+  "gate2": {
+    "binary_gate": "/claude-c-suite:audit"
+  }
+}
+```
+
+When set, the configured skill is invoked alongside the 3 advisors as a 4th reviewer. Its verdict (`pass`/`fail`) is read as a hard release gate.
+
+The default is `null` (no binary gate). Earlier versions defaulted to `/claude-c-suite:audit`, but that skill is the conformance script for the `claude-c-suite` plugin's own command files — it errors out on any other plugin and previously blocked every `/ship` invocation in non-claude-c-suite-plugin repos. The fix landed in v0.1.1 (#26).
 
 ### Verdict line convention
 
@@ -142,14 +173,15 @@ This plugin invokes other plugins' slash commands as **skills** (via Claude Code
 
 > Invoke `/claude-c-suite:ask` via the Skill tool, passing the prompt block built in step N as input. Wait for the full markdown response before continuing.
 
-For parallel reviewers in gate2:
+For parallel reviewers in gate2 (the number of skills invoked depends on `gate2.binary_gate`):
 
-> In a single tool-call batch, invoke all four reviewer skills in parallel via the Skill tool: `/claude-c-suite:audit`, `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`.
+> In a single tool-call batch, invoke the gate2 reviewer skills in parallel via the Skill tool. **Default (advisor-only mode, `gate2.binary_gate: null`)**: 3 advisor skills — `/claude-c-suite:cso`, `/claude-c-suite:qa-lead`, `/claude-c-suite:cto`. **When `gate2.binary_gate` is configured to a skill name** (e.g. `/claude-c-suite:audit` for plugin maintainers): 4 skills — the configured binary gate skill plus the 3 advisors.
 
 If a skill is not installed, the command degrades:
-- Missing reviewer → that gate slot becomes `unknown`, prints a warning, continues.
-- Missing `/audit` (hard gate) → requires `force` flag to ship.
-- Missing `kagura-memory` → recall and session-start/summary are skipped silently.
+- Missing advisor reviewer → that gate slot becomes `unknown`, prints a warning, continues.
+- Missing binary gate skill (only when `gate2.binary_gate` is set) → treat as `unknown`, require `force` to continue.
+- `gate2.binary_gate` is `null` (default) → no binary gate, advisor-only mode, no `force` required.
+- Missing `kagura-memory` → recall and session-start/summary are skipped (with a one-line warning when `memory.context_id` resolution fails).
 
 You can probe what's installed with `/gh-issue-driven:doctor`.
 
@@ -172,10 +204,10 @@ Key options:
 |---|---|---|
 | `default_branch` | `main` | The branch `start` and `ship` use as the base. |
 | `branch.type_label_map` | bug/fix/feature/... → fix/feat/... | How issue labels become branch type prefixes. |
-| `memory.context_id` | `kagura-dev` | Kagura Memory context for recall. |
+| `memory.context_id` | `gh-issue-driven-dev` | Kagura Memory context for recall. Accepts a UUID or a context name (resolved at runtime, case-insensitive). |
 | `gate1.primary` | `/claude-c-suite:ask` | First reviewer in the gate1 cascade. |
 | `gate1.fallback` | `/claude-c-suite:ceo` | Used when primary declines. |
-| `gate2.binary_gate` | `/claude-c-suite:audit` | The only override-blocking gate. |
+| `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
 | `copilot.max_loops` | `5` | Maximum review iterations. |
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |
@@ -207,13 +239,13 @@ Plus full reviewer output:
 
 | Tool | Required | Why |
 |---|---|---|
-| `gh` v2.88.0+ | yes | issue/PR ops, Copilot reviewer |
+| `gh` (any version) | yes | issue/PR ops. **Mode A**: any version. **Mode B**: v2.88.0+ required (real `--add-reviewer @copilot` support landed in March 2026 — see [Requirements](#requirements-one-of) above for the Mode A vs Mode B distinction). |
 | `git` | yes | branch ops |
 | `jq` | yes | JSON parsing in command bodies |
 | `python3` | recommended | helper for some checks |
 | [`claude-c-suite`](https://github.com/JFK/claude-c-suite-plugin) | recommended | gate1 + gate2 reviewers (degrades gracefully) |
 | [`claude-phd-panel`](https://github.com/JFK/claude-phd-panel-plugin) | optional | reserved for v0.2 deep-review modes |
-| [`kagura-memory`](https://github.com/JFK/memory-cloud) | optional | session-start/summary + recall |
+| [`kagura-memory`](https://github.com/kagura-ai/memory-cloud) | optional | session-start/summary + recall |
 
 ---
 
@@ -234,6 +266,21 @@ For each:
 5. `/gh-issue-driven:ship dry-run`
 6. `/gh-issue-driven:ship`
 7. `/gh-issue-driven:status`
+
+---
+
+## Limitations
+
+`gh-issue-driven` is alpha software (v0.1.x). The orchestrated flow works end-to-end on real PRs (the plugin has been used to ship its own PRs against `JFK/gh-issue-driven`), but the following known sharp edges exist as of v0.1.1. None lose data or corrupt state, but they affect the operator experience:
+
+- **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
+- **No resume mode** ([#14](https://github.com/JFK/gh-issue-driven/issues/14)) — if `/ship` exits mid-loop (test failure, manual interrupt, silent_no_op), re-running it currently re-runs all gates from scratch instead of resuming where it left off.
+- **`memory.context_id` default is a placeholder name** ([#12](https://github.com/JFK/gh-issue-driven/issues/12) — implemented in this release) — `memory.context_id` now accepts either a UUID or a context name (case-insensitive, resolved at runtime via `list_contexts`). The default value is `gh-issue-driven-dev`, an honest plugin-named placeholder. Users with kagura-memory installed should override it to either an actual context name (case-insensitive match against their existing contexts) or a UUID. Users without kagura-memory can ignore the field — recall is skipped automatically. Resolution failure (name not found, ambiguous, list_contexts errors) skips recall **with a one-line warning** and continues `/start` — the warning tells the operator what happened so the failure isn't silent. The current sharp edge is that **`/gh-issue-driven:doctor` does not yet validate that the configured context_id resolves successfully** — that's tracked as a v0.1.2 follow-up.
+- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (deferred to v0.2.0+ alongside [#3](https://github.com/JFK/gh-issue-driven/issues/3)).
+- **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync). Filed as a v0.1.1 hardening tail follow-up.
+- **No automated handling of secret-shaped values in PR bodies** ([#7](https://github.com/JFK/gh-issue-driven/issues/7)) — the plugin generates PR bodies from commit messages and diff context. v0.2.0 will add a secret-scan abort.
+
+For the full list of known issues, see the [v0.1.1](https://github.com/JFK/gh-issue-driven/milestone/1), [v0.1.2](https://github.com/JFK/gh-issue-driven/milestone/4), and [v0.2.0](https://github.com/JFK/gh-issue-driven/milestone/2) milestones.
 
 ---
 
