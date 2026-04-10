@@ -268,8 +268,8 @@ Parse each returned JSON into an entry in the `ISSUES` array: `{number, title, b
 
 If any API call returns a 404, abort with `issue #<num> not found in <repo>`.
 
-After all fetches complete, set convenience aliases for downstream steps:
-- `PRIMARY_ISSUE` = `ISSUES[0]` (the first/lowest issue in the input order)
+After all fetches complete, **sort `ISSUES` by issue number ascending** (so the lowest-numbered issue is always `ISSUES[0]`). This ensures consistent behavior regardless of the order the operator typed the IDs. Then set convenience aliases:
+- `PRIMARY_ISSUE` = `ISSUES[0]` (the lowest-numbered issue — used as the primary for v1 aliases and branch naming)
 - `ISSUE_NUM` = `PRIMARY_ISSUE.number` (v1 alias — used by steps that expect a single issue number)
 - `ISSUE_TITLE` = `PRIMARY_ISSUE.title` (v1 alias)
 - `ISSUE_BODY` = `PRIMARY_ISSUE.body` (v1 alias)

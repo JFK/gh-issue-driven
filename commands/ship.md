@@ -450,9 +450,9 @@ Then create the PR:
 ```bash
 TITLE_TEMPLATE="<from config, default '{type}: {title} (#{number})'>"
 
-# For batch mode, compose title from all issue numbers
+# For batch mode, derive issue numbers from state.issues and compose title
 if [ "$IS_BATCH" = "true" ]; then
-  ISSUE_NUMS_STR=$(echo "$ISSUE_NUMS" | tr ' ' ',' | sed 's/,/, #/g; s/^/#/')
+  ISSUE_NUMS_STR=$(jq -r '[.issues[].number | "#\(.)"] | join(", ")' "$STATE_FILE")
   # e.g. "#4, #12, #20, #21"
   TITLE="${BRANCH_TYPE}: batch ${ISSUE_NUMS_STR}"
 else

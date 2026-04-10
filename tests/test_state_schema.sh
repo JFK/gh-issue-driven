@@ -3,7 +3,11 @@
 # Validates that jq can parse both schema versions and extract issue data correctly.
 set -euo pipefail
 
+command -v jq >/dev/null 2>&1 || { echo "ABORT: jq not found — install jq to run state schema tests"; exit 1; }
+
 FIXTURE_DIR="$(dirname "$0")/fixtures/state-schema"
+[ -d "$FIXTURE_DIR" ] || { echo "ABORT: fixture directory not found — $FIXTURE_DIR"; exit 1; }
+
 PASS=0; FAIL=0; TOTAL=0
 
 check() {
