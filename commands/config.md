@@ -110,9 +110,9 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "max_loops": 5,
     "poll_interval_sec": 60,
     "max_wait_sec": 900,
+    "silent_no_op_threshold_polls": 3,
     "run_tests_after_edits": true,
     "reply_to_non_actionable": false,
-    "verification_wait_sec": 30,
     "skip_setup_prompt": false
   },
   "pr": {
