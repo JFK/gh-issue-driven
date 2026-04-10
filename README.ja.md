@@ -231,7 +231,7 @@ skill が見つからない場合の degrade：
 
 | ツール | 必須 | 用途 |
 |---|---|---|
-| `gh` v2.88.0+ | 必須 | issue/PR 操作、Copilot reviewer |
+| `gh` (任意のバージョン) | 必須 | issue/PR 操作。**Mode A**: 任意のバージョンで OK。**Mode B**: v2.88.0+ 必須 (本物の `--add-reviewer @copilot` サポートは2026年3月に追加 — Mode A vs Mode B の区別は上記「必要なバージョン」を参照)。 |
 | `git` | 必須 | ブランチ操作 |
 | `jq` | 必須 | JSON パース |
 | `python3` | 推奨 | 一部ヘルパー |

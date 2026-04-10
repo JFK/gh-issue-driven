@@ -239,7 +239,7 @@ Plus full reviewer output:
 
 | Tool | Required | Why |
 |---|---|---|
-| `gh` v2.88.0+ | yes | issue/PR ops, Copilot reviewer |
+| `gh` (any version) | yes | issue/PR ops. **Mode A**: any version. **Mode B**: v2.88.0+ required (real `--add-reviewer @copilot` support landed in March 2026 — see [Requirements](#requirements-one-of) above for the Mode A vs Mode B distinction). |
 | `git` | yes | branch ops |
 | `jq` | yes | JSON parsing in command bodies |
 | `python3` | recommended | helper for some checks |
