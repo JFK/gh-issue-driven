@@ -203,6 +203,7 @@ skill が見つからない場合の degrade：
 | キー | デフォルト | 備考 |
 |---|---|---|
 | `default_branch` | `main` | base ブランチ |
+| `memory.context_id` | `null` (auto-detect) | Kagura Memory の recall 用コンテキスト。`null` (repo ごとに auto-detect)、`owner/repo` をキーとした **dict** (例: `{"JFK/gh-issue-driven": "<uuid>", "*": "<uuid>"}` — `"*"` は wildcard fallback)、または legacy scalar (UUID / name) を受け付ける。初回 `/start` 時にそのリポジトリ用のコンテキストを選択/作成するプロンプトが出て、dict のそのリポジトリのキーに永続化される。詳細は `/gh-issue-driven:config show`。 |
 | `gate1.primary` | `/claude-c-suite:ask` | gate1 の最初のレビュア |
 | `gate1.fallback` | `/claude-c-suite:ceo` | decline 時のエスカレーション先 |
 | `gate2.binary_gate` | `null` (off) | optional な override 不可バイナリゲート。skill 名 (例: `/claude-c-suite:audit`) を設定すると有効化 |

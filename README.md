@@ -205,7 +205,7 @@ Key options:
 |---|---|---|
 | `default_branch` | `main` | The branch `start` and `ship` use as the base. |
 | `branch.type_label_map` | bug/fix/feature/... → fix/feat/... | How issue labels become branch type prefixes. |
-| `memory.context_id` | `null` (auto-detect) | Kagura Memory context for recall. When `null`, `/start` prompts to select or create a context on first run and persists the choice. Also accepts a UUID or a context name (resolved at runtime, case-insensitive). |
+| `memory.context_id` | `null` (auto-detect) | Kagura Memory context for recall. Accepts `null` (auto-detect per repo), a **dict** keyed by `owner/repo` (e.g. `{"JFK/gh-issue-driven": "<uuid>", "*": "<uuid>"}` — `"*"` is a wildcard fallback), or a legacy scalar UUID/name. On first `/start` in a repo, the user is prompted to select or create a context; the choice is persisted under the repo's key. See `/gh-issue-driven:config show` for the full semantics. |
 | `gate1.primary` | `/claude-c-suite:ask` | First reviewer in the gate1 cascade. |
 | `gate1.fallback` | `/claude-c-suite:ceo` | Used when primary declines. |
 | `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
