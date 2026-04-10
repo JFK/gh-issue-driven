@@ -61,9 +61,9 @@ Gate1   <verdict>  (via /<reviewer>[, escalated to /ceo])
 Gate2   <aggregate verdict>
         - audit:       <pass|fail|skipped|unknown>   ← see audit value semantics below
         - binary_gate: <skill name or "(none)">  ← omit this line if state lacks the field (older state files)
-        - cso:         <verdict>
-        - qa-lead:     <verdict>
-        - cto:         <verdict>
+        <for each (skill_name, verdict) in advisor_verdicts:>
+        - <skill_name>: <verdict>
+        </for>
         Full output: <summary_path>
 
 PR      <pr_url>  (#<number>, opened <relative time ago>)
@@ -90,6 +90,15 @@ The `audit` field in the persisted state can take **four** values:
 | `unknown` | `gate2.binary_gate` was configured to a skill name, but the skill errored or was unavailable. **Two write paths**: (a) without FORCE, ship.md step 7 aborts and writes a partial state with `audit=unknown` so `/status` can show the abort reason; (b) with FORCE, step 7 logs a loud warning and proceeds to step 10's normal flow which persists `audit=unknown` as a diagnostic. Either way, `unknown` means "the binary gate didn't actually validate the PR — either it wasn't run (the skill broke) or the operator force-overrode it." If you see `unknown` in production state, the binary gate skill probably had a bug or wasn't installed. Investigate. |
 
 If the state file lacks the `audit` field entirely (older state files written before the binary gate refactor), render as `(absent)` and don't fail.
+
+#### Advisor verdicts — v1/v2 schema compatibility
+
+The `gate2` section has two schema versions for advisor verdicts:
+
+- **v2** (v0.1.2+): `gate2.advisor_verdicts` is a map keyed by skill name (e.g. `{"cso": "green", "qa-lead": "yellow", "cto": "green"}`). Iterate it to render one `- <skill_name>: <verdict>` line per advisor.
+- **v1** (v0.1.0–v0.1.1): advisor verdicts are stored as named fields `gate2.cso`, `gate2.qa_lead`, `gate2.cto`. No `advisor_verdicts` field exists.
+
+Reader logic: if `gate2.advisor_verdicts` exists, use it directly. Otherwise, synthesize the map from v1 fields: `{"cso": gate2.cso, "qa-lead": gate2.qa_lead, "cto": gate2.cto}` (skip any field that is absent). This allows `/status` to render both old and new state files without migration.
 
 For the live PR state, run:
 
