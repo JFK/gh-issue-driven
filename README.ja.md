@@ -42,7 +42,8 @@
 
 # 任意のリポジトリで:
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
-/gh-issue-driven:start 142       # フェーズ1
+/gh-issue-driven:start 142       # フェーズ1（単一 issue）
+/gh-issue-driven:start 4 12 20   # 複数 issue を1ブランチにまとめることも可能
 # ... 実装、その後 /simplify で diff レビュー ...
 /gh-issue-driven:ship            # フェーズ2
 ```
@@ -55,7 +56,7 @@
 
 | コマンド | 動作 |
 |---|---|
-| `/gh-issue-driven:start <issue> [flags]` | issue 取得、gate1、ブランチ作成。フラグ: `dry-run`, `force`, `no-memory` |
+| `/gh-issue-driven:start <issue...> [flags]` | issue 取得、gate1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>` |
 | `/gh-issue-driven:ship [flags]` | gate2、PR 作成、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft` |
 | `/gh-issue-driven:doctor [verbose|fix]` | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show|init|path|<key>]` | 実効設定の表示、テンプレート初期化 |

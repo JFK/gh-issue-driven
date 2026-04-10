@@ -43,7 +43,8 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 
 # In a repo:
 /gh-issue-driven:doctor          # one-time environment check (will prompt to confirm Step 0)
-/gh-issue-driven:start 142       # phase 1
+/gh-issue-driven:start 142       # phase 1 (single issue)
+/gh-issue-driven:start 4 12 20   # or batch multiple issues into one branch
 # ... implement, then /simplify to review the diff ...
 /gh-issue-driven:ship            # phase 2
 ```
@@ -56,7 +57,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 
 | Command | What it does |
 |---|---|
-| `/gh-issue-driven:start <issue> [flags]` | Fetch issue, run gate1, create branch. Flags: `dry-run`, `force`, `no-memory`. |
+| `/gh-issue-driven:start <issue...> [flags]` | Fetch issue(s), run gate1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`. |
 | `/gh-issue-driven:ship [flags]` | Run gate2, create PR, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`. |
 | `/gh-issue-driven:doctor [verbose|fix]` | Read-only environment health check. |
 | `/gh-issue-driven:config [show|init|path|<key>]` | Show effective config or stamp a fresh template. |
