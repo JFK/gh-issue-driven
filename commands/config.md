@@ -67,17 +67,23 @@ Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalon
 
 ### `memory.context_id`
 
-Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `gh-issue-driven-dev`). Name matching is **case-insensitive** (so `Gh-Issue-Driven-Dev` and `gh-issue-driven-dev` both resolve to the same context). When a name is given, `/gh-issue-driven:start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). The resolution happens fresh on every invocation; the resolved UUID is **not** written back to this config file, keeping it portable across machines and Kagura Memory installations.
+Accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`), a context **name** (e.g. `my-project`), or `null` (the default — triggers interactive auto-detect).
 
-**Resolution failure paths** (name not found / multiple matches / list_contexts errors / kagura-memory not installed) all set the in-session value to `null` and **skip recall without aborting `/start`**. Each failure path logs a single one-line warning so the operator knows recall was skipped and why; "skip" means "do not abort the command", not "do not log." `memory.skip_on_failure` does NOT control these paths because they happen *before* the recall call. The rationale: a config that can't even produce a UUID is not "kagura-memory failed at runtime," it's "you don't have a usable memory setup yet" — fail-safe is the right call.
+**Auto-detect (default behavior)**: When `context_id` is `null`, `/gh-issue-driven:start` step 2b prompts the user to select an existing Kagura Memory context or create a new one. The chosen UUID is then **persisted to this config file** so the prompt only fires once. This is the recommended first-run experience — no manual UUID lookup needed.
 
-`memory.skip_on_failure` controls the behavior when the **recall call itself** errors at runtime (the resolved UUID was valid, the network or server failed mid-call):
+**Name resolution**: When a non-null, non-UUID string is given, `/start` resolves it to a UUID at runtime via `mcp__kagura-memory__list_contexts` (see start.md step 2a). Name matching is **case-insensitive**. The resolved UUID is cached in-session only — **not** written back to this config file, keeping it portable across machines.
+
+**Backward compatibility**: The pre-v0.2.0 default was `"gh-issue-driven-dev"` (a placeholder name). If this exact string is present and name resolution fails (no such context exists), `/start` treats it as an auto-detect trigger — the user is prompted to select a context just as if the value were `null`. This ensures users upgrading from v0.1.x get the auto-detect experience without manually editing their config.
+
+**Resolution failure paths** (name not found for non-placeholder names / multiple matches / list_contexts errors / kagura-memory not installed) all set the in-session value to `null` and **skip recall without aborting `/start`**. Each failure path logs a single one-line warning. `memory.skip_on_failure` does NOT control these paths — it controls step 7's behavior when the **recall call itself** fails at runtime.
+
+`memory.skip_on_failure` controls the behavior when the recall call errors at runtime (the resolved UUID was valid, the network or server failed mid-call):
 - `true` (default): log the error and continue with empty recall results — `/start` proceeds normally
 - `false`: abort `/start` with the recall error — for users who treat broken memory as a hard failure
 
-The default `gh-issue-driven-dev` is a placeholder. Users with kagura-memory installed should change it to either:
-- The UUID of their preferred context, OR
-- The exact name of an existing context in their Kagura Memory (case-insensitive match)
+Users can pre-set this field to skip the auto-detect prompt:
+- A UUID of their preferred context, OR
+- The exact name of an existing context (case-insensitive match, resolved fresh each invocation)
 
 Users without kagura-memory installed can ignore this field — recall is skipped automatically when the plugin is missing.
 
@@ -104,7 +110,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "max_slug_chars": 40
   },
   "memory": {
-    "context_id": "gh-issue-driven-dev",
+    "context_id": null,
     "recall_k": 5,
     "skip_on_failure": true
   },
