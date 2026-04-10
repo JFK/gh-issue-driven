@@ -51,3 +51,6 @@ jobs:
 
       - name: Verify ship.md inline jq stays in sync with canonical filter
         run: bash tests/jq-sync-check.sh
+
+      - name: Run verdict parser fixture tests
+        run: python3 tests/test_verdict_parser.py
