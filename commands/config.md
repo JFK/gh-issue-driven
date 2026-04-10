@@ -118,7 +118,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "skip_setup_prompt": false
   },
   "pr": {
-    "draft_default": false,
+    "draft_default": true,
     "title_template": "{type}: {title} (#{number})"
   },
   "tag": {
