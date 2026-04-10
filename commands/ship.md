@@ -542,6 +542,8 @@ gh pr ready "$PR_NUMBER"
 
 If the promotion fails (e.g., permissions), log a warning but do not abort — the PR is still usable as a draft. For any other `exit_reason` (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`), leave the PR as draft.
 
+Update the state file with `pr.state` reflecting the outcome: `"ready"` if promotion succeeded, `"draft"` if it was skipped or failed. This makes the draft→ready transition observable via `/gh-issue-driven:status`.
+
 ### 15. Save the session summary to memory
 
 Skip if `DRY_RUN` or `NO_MEMORY` was set during `start`.

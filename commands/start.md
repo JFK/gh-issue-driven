@@ -405,7 +405,7 @@ For each detected skill, include it in the suggested workflow below. For skills 
 ```
 Suggested workflow:
   1. Implement the change on this branch.
-  2. Run /feature-dev for guided development (optional)      ← only if detected
+  2. Run /feature-dev:feature-dev for guided development (optional)      ← only if detected
   3. Run /simplify to review changed code before shipping.   ← only if detected
   4. /gh-issue-driven:ship   ← when implementation is ready
 ```
