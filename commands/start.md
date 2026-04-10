@@ -120,9 +120,15 @@ Step 6 (branch name computation) produces a slug from these already-validated co
 
 Read `~/.claude/gh-issue-driven-config.json` if it exists. If absent or unparseable, log a single warning line and use the built-in defaults documented below. Deep-merge user values over defaults.
 
-#### 2a. Resolve `memory.context_id` (name → UUID)
+#### 2a. Resolve `memory.context_id` (per-repo dict / name → UUID)
 
-`memory.context_id` accepts **either** a Kagura Memory context UUID (e.g. `4b080ca8-4f2b-4506-9b55-77590b1423cb`) **or** a context **name** (e.g. `my-project`). The default value is `null`, which triggers the interactive auto-detect flow (step 2b) on first run.
+`memory.context_id` accepts three forms:
+
+| Form | Meaning |
+|---|---|
+| `null` (default) | Auto-detect on first run, persisted per repo. |
+| **object** (dict) | Per-repo mapping, e.g. `{"JFK/gh-issue-driven": "<uuid>", "*": "<uuid>"}`. Keys are `owner/repo` strings (matched against `REPO_FULL_NAME` from step 1). The special key `"*"` is a wildcard fallback used when no exact key matches. Each value is a UUID or a context name. **Recommended.** |
+| string (UUID or name) | **Legacy (scalar)**: same context for all repos. Still works; auto-detect will upgrade it in-place. |
 
 If `NO_MEMORY` is set, skip resolution entirely (the value will never be read).
 
@@ -132,27 +138,49 @@ Detect which form was given:
 UUID_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 ```
 
-Branches (in priority order):
+Top-level branches (in priority order):
 
-- **If `memory.context_id` is `null`, unset, or an empty string after `trim()`**: this is the auto-detect trigger. Proceed to step 2b.
-- **If `memory.context_id` matches `UUID_REGEX`** (case-insensitive on the hex characters): use as-is, no resolution needed. Skip step 2b.
+- **If `memory.context_id` is `null`, unset, or (after `trim()`) an empty string**: auto-detect trigger. Proceed to step 2b.
+- **If `memory.context_id` is an object (dict form)**: per-repo lookup. Proceed to **2a.i** below.
+- **If `memory.context_id` is a non-empty string (scalar form, legacy)**: resolve as a single value (UUID or name). Proceed to **2a.ii** below. Log a single one-line note: `memory.context_id is in legacy scalar form; it will be auto-upgraded to a per-repo dict on next auto-detect (see /gh-issue-driven:config show)`.
+
+##### 2a.i — Dict form: look up the repo's entry
+
+1. Let `RESOLVED_VALUE = context_id[REPO_FULL_NAME]` (exact string match on the key, case-sensitive — GitHub `owner/repo` slugs are canonical).
+2. If `RESOLVED_VALUE` is missing, try `RESOLVED_VALUE = context_id["*"]` (the wildcard fallback).
+3. If neither key exists, this is an **auto-detect trigger** (no entry for this repo yet). Proceed to step 2b. Step 2b will persist the chosen UUID back to `context_id[REPO_FULL_NAME]` so subsequent runs in the same repo skip the prompt.
+4. If the value is present but `null`/empty, treat as auto-detect trigger for this repo (same as missing).
+5. If the value is a non-empty string, hand it off to **2a.ii** as `RESOLVED_VALUE` for UUID/name resolution. Log which key was hit: `memory.context_id: matched "<key>" → <value first 8 chars>…` where `<key>` is either the repo slug or `"*"`.
+
+##### 2a.ii — Resolve a single value (UUID or name)
+
+`RESOLVED_VALUE` is either the scalar from the top-level string branch or the looked-up value from 2a.i.
+
+- **If `RESOLVED_VALUE` matches `UUID_REGEX`** (case-insensitive on the hex characters): use as-is, no further resolution. Store it as the in-session context UUID. Skip step 2b.
 - **Otherwise** (non-empty string that isn't a UUID): treat it as a name and resolve to a UUID at runtime.
 
-Resolution procedure (only when `NO_MEMORY` is not set AND the value is a non-empty name):
+Resolution procedure (only when `NO_MEMORY` is not set AND `RESOLVED_VALUE` is a non-empty name):
 
-> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == <config value>.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `My-Project` when their context is `my-project`).
+> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == RESOLVED_VALUE.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `My-Project` when their context is `my-project`).
 
 Edge cases:
-- **Name not found** (zero matches): if the name is `"gh-issue-driven-dev"` (case-insensitive — the pre-v0.2.0 placeholder default), treat this as a **backward-compat auto-detect trigger** and proceed to step 2b. For any other name, log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
+- **Name not found** (zero matches): if the name is `"gh-issue-driven-dev"` (case-insensitive — the pre-v0.2.0 placeholder default) and this was the top-level scalar branch (2a), treat as a **backward-compat auto-detect trigger** and proceed to step 2b. For any other name, log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
 - **Multiple matches** (≥2 contexts with the same name, case-insensitive): log `memory.context_id "<name>" is ambiguous (matched N contexts); recall will be skipped to avoid querying the wrong context — set context_id to a UUID directly to disambiguate`, set to `null`, do NOT abort. **Do not silently take the first match** — ambiguity is a configuration smell that the user should resolve, and "wrong context" is a worse failure mode than "no recall."
 - **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped`, set to `null`.
 - **Exactly one match**: take its `.id` as the resolved UUID, store in the in-session config. Skip step 2b.
 
-#### 2b. Auto-detect `memory.context_id` (interactive, first-run only)
+Dict-form name resolution failures (name not found, ambiguous, etc.) set the in-session value to `null` and skip recall **without** triggering auto-detect for the repo — the user explicitly configured a name, so an auto-detect on top of that would silently override their choice. Only a fully missing key in the dict (2a.i step 3) triggers auto-detect.
 
-This step runs when step 2a determines the context_id needs interactive selection — either because it is `null` (fresh install) or because the legacy placeholder `"gh-issue-driven-dev"` failed name resolution (upgrade from pre-v0.2.0). This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top skips all resolution).
+#### 2b. Auto-detect `memory.context_id` (interactive, first-run per repo)
 
-**Goal**: prompt the user to pick (or create) a Kagura Memory context, persist the chosen UUID to the config file so the prompt never fires again, and set the in-session value for step 7.
+This step runs when step 2a determines the context_id needs interactive selection for this repo — one of:
+- `context_id` is `null`/missing (fresh install), OR
+- `context_id` is a dict but has no key matching `REPO_FULL_NAME` and no `"*"` wildcard (new repo, nothing else to fall back on), OR
+- `context_id` is the legacy scalar placeholder `"gh-issue-driven-dev"` and name resolution failed (upgrade from pre-v0.2.0).
+
+This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top skips all resolution).
+
+**Goal**: prompt the user to pick (or create) a Kagura Memory context, persist the chosen UUID to the config file **under this repo's key** so the prompt never fires again for this repo, and set the in-session value for step 7.
 
 1. **Call `mcp__kagura-memory__list_contexts`** (reuse the result from step 2a if already called during name resolution; otherwise call it now). If the call fails or kagura-memory is not installed, log `kagura-memory not available; recall will be skipped`, set in-session value to `null`, and return. Do NOT prompt.
 
@@ -161,15 +189,22 @@ This step runs when step 2a determines the context_id needs interactive selectio
    - **"Skip recall for now"** — sets in-session value to `null` without persisting, so the prompt will fire again next run.
 
 3. **Present the choice via the `AskUserQuestion` tool.**
-   - If `list_contexts` returned **zero contexts**: ask `"No Kagura Memory contexts found. Create one for this project?"` with options `"Yes, create '<REPO_NAME>'"` and `"Skip recall for now"`.
-   - If `list_contexts` returned **one or more contexts**: ask `"Select a Kagura Memory context for recall:"` with the formatted context list plus the two fixed options.
+   - If `list_contexts` returned **zero contexts**: ask `"No Kagura Memory contexts found. Create one for <REPO_FULL_NAME>?"` with options `"Yes, create '<REPO_NAME>'"` and `"Skip recall for now"`.
+   - If `list_contexts` returned **one or more contexts**: ask `"Select a Kagura Memory context for <REPO_FULL_NAME>:"` with the formatted context list plus the two fixed options.
+
+   The `REPO_FULL_NAME` mention in the question text matters — in a multi-repo setup the operator needs to see which repo this binding is for, since the persisted entry only applies to that repo.
 
 4. **Handle the user's choice:**
    - **Existing context selected**: use its `.id` as the resolved UUID.
    - **"Create new context"**: invoke `mcp__kagura-memory__create_context` with `name=<REPO_NAME>` (the repo name portion of `REPO_FULL_NAME`, e.g. `gh-issue-driven`). Use the returned `.id` as the resolved UUID. If creation fails, log a warning, set to `null`, return.
    - **"Skip recall for now"**: set in-session value to `null`. Do NOT write to config (user explicitly deferred). Return.
 
-5. **Persist the chosen UUID to the config file.** This is the one exception to the "never write back to config" rule — auto-detect is a one-time bootstrapping action, not a per-invocation side effect.
+5. **Persist the chosen UUID to the config file, scoped to this repo.** This is the one exception to the "never write back to config" rule — auto-detect is a one-time bootstrapping action, not a per-invocation side effect. The persist logic branches on the existing `context_id` shape to preserve prior entries.
+
+   The jq transform is the canonical migration path. It handles three cases:
+   - **Missing or null** → create `{<REPO_FULL_NAME>: <chosen>}`.
+   - **Existing object (dict)** → set `[<REPO_FULL_NAME>] = <chosen>`, preserving every other key.
+   - **Existing scalar string (legacy)** → **auto-upgrade**: convert to `{<REPO_FULL_NAME>: <chosen>, "*": <old_scalar>}`. The old scalar is preserved as the `"*"` wildcard so existing bindings for other repos still resolve until the user explicitly migrates or removes `"*"`.
 
    ```bash
    CONFIG_FILE="$HOME/.claude/gh-issue-driven-config.json"
@@ -178,9 +213,25 @@ This step runs when step 2a determines the context_id needs interactive selectio
    tmp=$(mktemp "$CONFIG_DIR/.gh-issue-driven-config.json.tmp.XXXXXX") || exit 1
 
    if [ -f "$CONFIG_FILE" ] && jq empty "$CONFIG_FILE" >/dev/null 2>&1; then
-     jq --arg uuid "<chosen-uuid>" '.memory.context_id = $uuid' "$CONFIG_FILE" > "$tmp"
+     jq \
+       --arg repo "$REPO_FULL_NAME" \
+       --arg uuid "<chosen-uuid>" \
+       '
+       .memory //= {} |
+       (.memory.context_id // null) as $cur |
+       if   ($cur | type) == "object" then
+         .memory.context_id = ($cur + {($repo): $uuid})
+       elif ($cur | type) == "string" and ($cur | length) > 0 then
+         .memory.context_id = {($repo): $uuid, "*": $cur}
+       else
+         .memory.context_id = {($repo): $uuid}
+       end
+       ' "$CONFIG_FILE" > "$tmp"
    else
-     jq -n --arg uuid "<chosen-uuid>" '{memory: {context_id: $uuid}}' > "$tmp"
+     jq -n \
+       --arg repo "$REPO_FULL_NAME" \
+       --arg uuid "<chosen-uuid>" \
+       '{memory: {context_id: {($repo): $uuid}}}' > "$tmp"
    fi
 
    if [ $? -eq 0 ] && jq empty "$tmp" >/dev/null 2>&1; then
@@ -192,15 +243,19 @@ This step runs when step 2a determines the context_id needs interactive selectio
    fi
    ```
 
-   Log: `saved memory.context_id=<uuid> to ~/.claude/gh-issue-driven-config.json`.
+   Log one of the following based on which branch fired:
+   - Missing/null: `saved memory.context_id[<REPO_FULL_NAME>]=<uuid> to ~/.claude/gh-issue-driven-config.json`
+   - Existing dict: `saved memory.context_id[<REPO_FULL_NAME>]=<uuid> (merged into existing dict)`
+   - Existing scalar: `upgraded memory.context_id from legacy scalar to dict: {<REPO_FULL_NAME>: <uuid>, "*": <old_scalar first 8 chars>…}`
 
 6. **Set the in-session value** to the chosen UUID so step 7 can use it immediately.
 
 Operational notes:
-- **After auto-detect persists a UUID**, subsequent `/start` invocations hit step 2a's UUID branch directly — no prompt, no `list_contexts` call. The prompt is truly one-time.
-- **Steady-state name resolution** (step 2a, non-null non-UUID values) still does **not** write back to config. The portability rationale remains: a user who explicitly sets a context name in their config file wants cross-machine portability. Only the auto-detect bootstrapping path writes.
+- **After auto-detect persists a UUID for this repo**, subsequent `/start` invocations in the same repo hit step 2a.i's exact-key match directly — no prompt, no `list_contexts` call. The prompt is truly one-time per repo.
+- **Steady-state name resolution** (step 2a.ii, non-null non-UUID values) still does **not** write back to config. The portability rationale remains: a user who explicitly sets a context name in their config file wants cross-machine portability. Only the auto-detect bootstrapping path writes.
 - **Honoring `memory.skip_on_failure`**: the auto-detect failure paths (kagura not installed, creation failed) always set `null` and continue, regardless of `memory.skip_on_failure`. That config controls step 7's runtime recall errors, not bootstrapping failures.
 - **`null` is the canonical "skip recall" sentinel** — it is the same value the failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`.
+- **Scalar auto-upgrade is one-way**: once a scalar is upgraded to a dict with `"*"` wildcard, subsequent auto-detects operate on the dict form. The user can remove `"*"` manually if they no longer want a catch-all fallback.
 
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
@@ -314,11 +369,11 @@ git show-ref --verify --quiet refs/heads/<branch> && BRANCH="<branch>-$(date -u 
 
 Skip this step entirely if **either** of:
 - `NO_MEMORY` flag was set on `/start` invocation, OR
-- `memory.context_id` is `null` (set by step 2a/2b when resolution failed or user chose "Skip recall", OR left as the `null` default when kagura-memory is unavailable)
+- the in-session resolved context UUID is `null` (set by step 2a/2b when dict lookup missed AND auto-detect failed, scalar resolution failed, user chose "Skip recall", or kagura-memory is unavailable)
 
 Otherwise:
 
-> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<memory.context_id>` (the resolved UUID from step 2a or 2b), `query=<combined query>`, and `k=<memory.recall_k>` (default 5).
+> **Invoke the `mcp__kagura-memory__recall` tool** with `context_id=<in-session resolved UUID>` (from step 2a.i/2a.ii or step 2b — not the raw config value, which may be a dict), `query=<combined query>`, and `k=<memory.recall_k>` (default 5).
 >
 > **Query construction:**
 > - Single issue: `<title> + first 240 chars of body` (unchanged)
