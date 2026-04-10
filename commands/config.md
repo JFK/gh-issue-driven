@@ -121,6 +121,19 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "draft_default": false,
     "title_template": "{type}: {title} (#{number})"
   },
+  "tag": {
+    "label_group_map": {
+      "bug": "Bug Fixes",
+      "enhancement": "Enhancements",
+      "documentation": "Documentation",
+      "security": "Security",
+      "tech-debt": "Tech Debt",
+      "tests": "Testing",
+      "i18n": "Internationalization"
+    },
+    "default_group": "Other",
+    "auto_close_milestone": false
+  },
   "dry_run_env_var": "GH_ISSUE_DRY_RUN"
 }
 ```

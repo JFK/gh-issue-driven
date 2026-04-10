@@ -21,12 +21,12 @@ All other writes are forbidden and the command bodies state this explicitly.
 | Reviewer skill output | **Untrusted data** | Parsed for verdict tokens and saved to disk. Never executed verbatim. |
 | Copilot review comments | **Untrusted data** | Read by Claude as suggestions. Each edit goes through `Edit` with normal scrutiny — Claude applies changes thoughtfully, not blindly. |
 | Local git state | Trusted | Operations limited to non-destructive: `fetch`, `checkout`, `branch`, `commit`, `push origin <branch>`. |
-| Default branch | **Strictly off-limits** | Plugin refuses to push to `main`/`master`, refuses to ship from the default branch, and refuses to delete branches. |
+| Default branch | **Off-limits (one exception)** | `/start` and `/ship` refuse to push to `main`/`master`. The sole exception is `/tag`, which pushes a `chore: release` commit + annotated tag to the default branch as part of the explicit release ceremony. `/ship` also refuses to run from the default branch. No command deletes branches. |
 | `~/.claude/settings.json` | **Strictly off-limits** | Never read, never written. |
 
 ## What this plugin will NOT do
 
-- Push to the default branch
+- Push to the default branch — **except** `/gh-issue-driven:tag`, which pushes a `chore: release` commit + annotated tag to main as part of the explicit release ceremony (see tag.md Trust boundary)
 - `git push --force` or `--force-with-lease`
 - Bypass branch protection rules
 - Delete any branch (local or remote)
