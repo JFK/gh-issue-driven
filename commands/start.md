@@ -67,8 +67,8 @@ Allow-list (canonical definition for `start.md` — all downstream steps inherit
 |---|---|---|
 | `REPO_FULL_NAME` | `^[^/]+/[^/]+$` | Must be exactly `owner/repo` |
 | `ISSUE_NUM` | `^[1-9][0-9]{0,8}$` | Positive integer, max 9 digits |
-| `OWNER` | `^[a-zA-Z0-9._-]{1,39}$` | GitHub username rules |
-| `REPO` | `^[a-zA-Z0-9._-]{1,100}$` | GitHub repo name rules |
+| `OWNER` | `^[a-zA-Z0-9._-]{1,39}$` | Safe shell allow-list for the parsed owner token |
+| `REPO` | `^[a-zA-Z0-9._-]{1,100}$` | Safe shell allow-list for the parsed repo token |
 
 Validation (run in a single Bash block immediately after step 1 normalizes the issue identifier into `REPO_FULL_NAME` and `issue_number`, before any later bash interpolation):
 
