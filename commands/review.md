@@ -107,7 +107,7 @@ Skip this step if `PROVIDER` is `copilot`.
 > **Invoke the `/code-review` skill via the Skill tool**, passing the PR number or URL. Wait for the full response.
 
 If the `/code-review` skill is not installed:
-- If `PROVIDER == "code-review"`: abort with `the /code-review plugin is not installed. Install it or change review.provider to "copilot".`
+- If `PROVIDER == "code-review"`: warn `/code-review not installed; skipping review run` and exit cleanly.
 - If `PROVIDER == "both"`: warn `/code-review not installed; falling back to copilot-only` and continue to step 5.
 
 Capture the `/code-review` output as `CODE_REVIEW_OUTPUT`. Extract actionable findings from the output:
@@ -147,8 +147,8 @@ Skip this step if `PROVIDER` is `code-review`.
 
 This step is the same Copilot polling loop as ship.md step 14, with the following differences:
 
-- **Loop counter continuity**: Start `i` at `total_loops_run + 1`, not `1`. The loop runs up to `copilot.max_loops` iterations **for this invocation** (not total across invocations).
-- **Total accumulation**: After each iteration, increment `total_loops_run`.
+- **Per-invocation loop counter**: Start `i` at `1` and run up to `copilot.max_loops` iterations **for this invocation**. `i` is always per-invocation (1-based).
+- **Global continuity**: Maintain `total_loops_run` as a separate accumulated count across all invocations. After each iteration, increment `total_loops_run`. For commit messages or logs that need a globally unique index, use `total_loops_run` (not `i`).
 
 Read Copilot-specific config from the `copilot.*` block (same keys as before: `max_loops`, `poll_interval_sec`, `max_wait_sec`, `silent_no_op_threshold_polls`, `run_tests_after_edits`, `reply_to_non_actionable`).
 
@@ -265,7 +265,7 @@ Provider <provider>
 /code-review  <findings_addressed> addressed, <findings_skipped> skipped
 
 <if copilot ran:>
-Copilot loop  <loops_run> iterations (total: <total_loops_run>/<max_loops>)
+Copilot loop  <loops_run> iterations (total: <total_loops_run>, max per run: <max_loops>)
               Exit: <exit_reason>
               Detection: <detection_method>
 

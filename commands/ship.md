@@ -113,7 +113,7 @@ Load `~/.claude/cache/gh-issue-driven/<branch>.json`. If missing:
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT`, `RESUME` booleans. Reject unknown flags.
 
-Read `REVIEW_PROVIDER` from `review.provider` in the effective config (default `"copilot"`). Valid values: `copilot`, `code-review`, `both`, `none`. If `NO_COPILOT` is set, override `REVIEW_PROVIDER` to `"none"` for this invocation (backward compatibility).
+Determine `REVIEW_PROVIDER` as follows: if the **user config** explicitly sets `review.provider`, use that value. Otherwise, for backward compatibility with v0.1.x configs, check legacy `copilot.enabled`: if the user config explicitly sets `copilot.enabled` to `false`, set `REVIEW_PROVIDER="none"`; otherwise default to `"copilot"`. Valid values: `copilot`, `code-review`, `both`, `none`. If `NO_COPILOT` is set, override `REVIEW_PROVIDER` to `"none"` for this invocation (backward compatibility).
 
 `DRAFT` defaults to `pr.draft_default` from the effective config (default `true`). The `draft` flag in `$ARGUMENTS` **overrides** this to `true`. There is no flag to force non-draft when `pr.draft_default` is `true` — the operator should set the config value to `false` if they want non-draft as the default.
 
@@ -482,13 +482,19 @@ git commit -m "fix: address /code-review findings
 git push origin "$BRANCH"
 ```
 
-Update the `review.code_review` state sub-block:
+Update the state file with the full v2 `review` block (not just the sub-block). Remove any legacy top-level `copilot` key. This is critical on the code-review-only path because step 14 is skipped and 14.g (the normal state writer) never runs:
 
 ```json
-"code_review": {
-  "ran_at": "<UTC ISO-8601>",
-  "findings_addressed": <N>,
-  "findings_skipped": <N>
+"review": {
+  "schema_version": 2,
+  "provider": "code-review",
+  "total_loops_run": <prior total_loops_run, default 0>,
+  "providers_completed": ["code-review"],
+  "code_review": {
+    "ran_at": "<UTC ISO-8601>",
+    "findings_addressed": <N>,
+    "findings_skipped": <N>
+  }
 }
 ```
 
@@ -708,13 +714,15 @@ Gate2   <aggregate verdict>
         <for each advisor in ADVISORS (config order):>
         - <display_label>: <ADVISOR_VERDICTS[advisor]>
         </for>
-        (or: skipped — resume mode)
+        <if resume and gate2 verdicts are present in state:>
+        (not re-run in resume mode)
+        </if>
 
 Review  provider: <REVIEW_PROVIDER>
         <if code-review ran:>
         /code-review: <findings_addressed> addressed, <findings_skipped> skipped
         <if copilot ran:>
-        Copilot loop: <N>/<max> iterations (total: <total_loops_run>), final state <REVIEW_DECISION>
+        Copilot loop: <N> iterations (total: <total_loops_run>, max per run: <max>), final state <REVIEW_DECISION>
         (or: skipped — review.provider=none)
 
 Memory  session summary saved

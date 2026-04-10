@@ -76,9 +76,9 @@ Review  provider: <review.provider>
         <if review.code_review exists:>
         /code-review: <findings_addressed> addressed, <findings_skipped> skipped (ran <relative time ago>)
         <if review.copilot exists:>
-        Copilot: <copilot.loops_run>/<copilot.max_loops>, last state: <copilot.last_state>
-        Detection: <copilot.detection_method>   ← (omit line if absent in state)
-        Exit:      <copilot.exit_reason>        ← (omit line if absent / loop still in progress)
+        Copilot: <review.copilot.loops_run>/<review.copilot.max_loops>, last state: <review.copilot.last_state>
+        Detection: <review.copilot.detection_method>   ← (omit line if absent in state)
+        Exit:      <review.copilot.exit_reason>        ← (omit line if absent / loop still in progress)
         Last polled: <relative time>
 ```
 

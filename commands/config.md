@@ -57,13 +57,13 @@ Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalon
 | `"both"` | Runs `/code-review` first (in-turn, single-shot), then Copilot loop (async, iterative). Sequential, not parallel — `/code-review` completes before Copilot starts. |
 | `"none"` | Skip post-PR review entirely. Equivalent to the legacy `no-copilot` flag, but config-level. |
 
-**Interaction with `copilot.enabled`**: When `review.provider` is set, it takes precedence over `copilot.enabled`. The `copilot.enabled` field is retained for backward compatibility but is only consulted when `review.provider` is absent from the user config. New users should use `review.provider` instead.
+**Interaction with `copilot.enabled`**: When the user config explicitly sets `review.provider`, that value controls reviewer selection and `copilot.enabled` is ignored. When `review.provider` is absent from the user config, the legacy `copilot.enabled` field is consulted: if explicitly `false`, `REVIEW_PROVIDER` becomes `"none"`. Otherwise, the built-in default `"copilot"` is used. New users should use `review.provider` instead of `copilot.enabled`.
 
 **Interaction with the `no-copilot` flag**: The `no-copilot` flag on `/gh-issue-driven:ship` overrides `review.provider` to `"none"` for that invocation only. It does not modify the config file.
 
-**`/code-review` requirements**: The `/code-review` plugin must be installed. It requires an existing PR (invoked after step 12). It posts a PR comment rather than a structured verdict — the review command reads the comment and extracts actionable findings. If `/code-review` is not installed and the provider is `"code-review"` or `"both"`, a warning is logged and the `/code-review` portion is skipped (Copilot still runs if provider is `"both"`).
+**`/code-review` requirements**: The `/code-review` plugin must be installed. It requires an existing PR (invoked after step 12). It posts a PR comment rather than a structured verdict — the review command reads the comment and extracts actionable findings. Missing-plugin behavior: both `/gh-issue-driven:ship` and `/gh-issue-driven:review` warn and skip only the `/code-review` portion when it is not installed. If provider is `"code-review"`, the review step exits cleanly with a warning. If provider is `"both"`, Copilot still runs.
 
-**Draft PR compatibility**: `/code-review` works on draft PRs (reads `gh pr diff` directly). Copilot does NOT review draft PRs (see memory `85c3fd82`). When provider is `"both"` and the PR is draft, `/code-review` runs but the Copilot loop will hit `silent_no_op` unless the PR is promoted to ready-for-review first.
+**Draft PR compatibility**: `/code-review` works on draft PRs (reads `gh pr diff` directly). Copilot review on a draft PR is not reliable and will typically result in `silent_no_op` rather than a usable review outcome (see memory `85c3fd82`). If you need Copilot review, promote the PR to ready-for-review first. With provider set to `"both"` on a draft PR, `/code-review` can still run even if the Copilot portion does not.
 
 ### `memory.context_id`
 
