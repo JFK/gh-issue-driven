@@ -2,10 +2,10 @@
 description: Phase 3 of gh-issue-driven — verifies milestone readiness, composes label-grouped release notes, bumps manifests, updates CHANGELOG index, commits, tags, pushes, and creates a GitHub Release.
 arguments:
   - name: version
-    description: "Semver version to release (e.g. '0.1.2'). If omitted, auto-detected from the milestone whose name matches the current branch's issue number. Required unless auto-detectable."
+    description: "Semver version to release (e.g. '0.1.2'). If omitted, auto-detected only when there is exactly one open milestone with open_issues == 0 and closed_issues > 0. Required unless auto-detectable."
     required: false
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (compose and print everything but make zero file/git/GitHub changes), 'force' (tag even when milestone has open issues — prints a warning)."
+    description: "Optional space-separated flags: 'dry-run' (compose and print everything but make zero file/git/GitHub changes), 'force' (tag even when milestone has open issues — prints a warning), '--notes-file=<path>' (use the specified file as the release notes body instead of auto-generating from milestone issues)."
     required: false
 ---
 
@@ -56,7 +56,8 @@ You are performing a release ceremony. Read each step carefully — the order ma
 - Set booleans from remaining tokens:
   - `DRY_RUN=true` if `dry-run` is present
   - `FORCE=true` if `force` is present
-- Reject unknown flags with a clear error message listing valid flags: `dry-run`, `force`.
+- If a token matches `--notes-file=<path>`, extract `<path>` and store as `NOTES_FILE`. This overrides the auto-generated release notes in step 12.
+- Reject unknown flags with a clear error message listing valid flags: `dry-run`, `force`, `--notes-file=<path>`.
 
 ### 2. Load configuration
 
@@ -131,7 +132,7 @@ If any of these abort, suggest running `/gh-issue-driven:doctor`.
 Fetch all milestones:
 
 ```bash
-gh api repos/:owner/:repo/milestones --jq '.[] | {number, title, open_issues, closed_issues, state}'
+gh api repos/:owner/:repo/milestones?state=all --jq '.[] | {number, title, open_issues, closed_issues, state}'
 ```
 
 **If `VERSION` was provided** (from step 1):
@@ -214,16 +215,16 @@ Build the release notes markdown:
 ### <Group Name>
 - <issue title> (#<number>) — @<author>
 
-**Full Changelog**: https://github.com/<owner>/<repo>/compare/v<prev_version>...v<VERSION>
+**Full Changelog**: https://github.com/<owner>/<repo>/compare/<PREV_TAG>...v<VERSION>
 ```
 
 For the `prev_version` in the Full Changelog link, detect the most recent existing tag:
 
 ```bash
-git describe --tags --abbrev=0 2>/dev/null || echo ""
+PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 ```
 
-If no previous tag exists, omit the Full Changelog line.
+If no previous tag exists (`PREV_TAG` is empty), omit the Full Changelog line. Note: `git describe --tags` returns the tag name as-is (e.g. `v0.1.1` with the `v` prefix already included). Use `PREV_TAG` directly in the compare URL — do **not** add an extra `v` prefix, or the URL will contain `vv0.1.1`.
 
 Write the composed notes to `/tmp/gh-issue-driven-release-notes.md`. (This path is consistent with existing `/tmp/gh-issue-driven.*` convention from ship.md.)
 
@@ -320,14 +321,22 @@ Push the commit and tag together using `--follow-tags` to avoid the partial-fail
 git push --follow-tags origin <DEFAULT_BRANCH>
 ```
 
-`--follow-tags` pushes all tags that point to commits being pushed and that are annotated or reachable. Since step 10 created a lightweight tag on HEAD, and HEAD is being pushed, the tag will be included.
+`--follow-tags` pushes annotated tags that point to commits being pushed. Since step 10 created an annotated tag on HEAD, and HEAD is being pushed, the tag will be included.
 
 **If `git push` fails** (branch protection, network error, auth issue):
 
 - Do NOT retry automatically.
 - Print the error verbatim.
-- Note that the commit and tag exist locally and can be retried with `git push --follow-tags origin <DEFAULT_BRANCH>`.
-- If the failure is due to branch protection (the error message contains "protected branch" or "required status check"), suggest: "The default branch has push restrictions. Create a short-lived PR for the version-bump commit, merge it, then run `/gh-issue-driven:tag <version>` again to create the tag and release on the merged commit."
+- Note that the release commit and tag already exist locally.
+- For transient failures (network/auth), the operator may retry only the push with `git push --follow-tags origin <DEFAULT_BRANCH>`.
+- If the failure is due to branch protection (the error message contains "protected branch" or "required status check"), do **not** tell the operator to rerun `/gh-issue-driven:tag <version>` from the beginning, because steps 7–10 have already updated files, created the release commit, and created the local tag. Instead, suggest this recovery workflow:
+  1. Create a short-lived branch from the current local HEAD (the release commit created in step 9).
+  2. Push that branch and open a PR into `<DEFAULT_BRANCH>`.
+  3. Merge the PR.
+  4. Update the local checkout of `<DEFAULT_BRANCH>` to the merged commit.
+  5. Ensure the local tag `v<VERSION>` points at the merged commit. If the merge strategy produced a new commit (not fast-forward), delete the old local tag and recreate it on HEAD: `git tag -d v<VERSION> && git tag -a v<VERSION> -m "v<VERSION>"`.
+  6. Push the tag: `git push origin v<VERSION>`.
+  7. Continue to step 12 to create the GitHub Release. Do **not** rerun steps 7–10.
 - Exit without writing `RELEASE_URL` to the recap.
 
 ### 12. Create GitHub Release
