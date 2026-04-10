@@ -61,8 +61,8 @@ Gate1   <verdict>  (via /<reviewer>[, escalated to /ceo])
 Gate2   <aggregate verdict>
         - audit:       <pass|fail|skipped|unknown>   ← see audit value semantics below
         - binary_gate: <skill name or "(none)">  ← omit this line if state lacks the field (older state files)
-        <for each (skill_name, verdict) in advisor_verdicts:>
-        - <skill_name>: <verdict>
+        <for each key in sorted keys of advisor_verdicts:>
+        - <key>: <advisor_verdicts[key]>
         </for>
         Full output: <summary_path>
 

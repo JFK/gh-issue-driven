@@ -168,13 +168,13 @@ First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the 
 
 > **In a single tool-call batch, invoke each advisor skill in `ADVISORS` in parallel via the Skill tool.** With the default config, this is 3 skills (`cso`, `qa-lead`, `cto`); with a custom `gate2.advisors`, this is whatever the operator configured. Each advisor receives the same gate2 prompt block from step 5. Do not proceed until all advisors return.
 
-Capture each advisor's output indexed by its skill name: `ADVISOR_OUTS["<skill_name>"]` (e.g. `ADVISOR_OUTS["cso"]`, `ADVISOR_OUTS["qa-lead"]`). The skill name is derived from the config entry by stripping the `/claude-c-suite:` prefix (or the full slash-command prefix for non-default skills). `AUDIT_OUT` stays null.
+Capture each advisor's output keyed by its **full config string**: `ADVISOR_OUTS["/claude-c-suite:cso"]`, `ADVISOR_OUTS["/claude-c-suite:qa-lead"]`, etc. Using the full config string avoids key collisions when two advisors from different namespaces share the same suffix (e.g. `/org-a:security` and `/org-b:security`). For display purposes (PR body, recap, status), derive a **display label** by stripping the common `/claude-c-suite:` prefix for default skills, or using the full string for non-default skills. `AUDIT_OUT` stays null.
 
 **Otherwise** (`gate2.binary_gate` is a non-null skill name, e.g. `"/claude-c-suite:audit"` for plugin maintainers who maintain claude-c-suite-plugin itself):
 
 > **In a single tool-call batch, invoke the binary gate skill PLUS each advisor skill in `ADVISORS` in parallel via the Skill tool.** The binary gate skill is `gate2.binary_gate` from config (e.g. `/claude-c-suite:audit`). The advisors are still iterated from `ADVISORS` (NOT hardcoded) so that operators who customize `gate2.advisors` get their custom list invoked alongside the binary gate. With the default config, this is `1 binary gate + 3 advisors = 4 skills`; with custom `gate2.advisors`, the count depends on the operator's list. Each receives the same gate2 prompt block from step 5. Do not proceed until all skills return.
 
-Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS["<skill_name>"]` for each advisor (same skill-name keying as advisor-only mode above).
+Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS["<full_config_string>"]` for each advisor (same full-config-string keying as advisor-only mode above).
 
 In either mode, if any **advisor** skill is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return.
 
@@ -232,7 +232,7 @@ Then exit (without `FORCE`) or continue past step 7 with a loud warning (with `F
 
 This step runs in **both** modes (advisor-only and binary-gate-configured). When `AUDIT_VERDICT == "skipped"` (advisor-only mode from step 7), the advisor aggregate computed here IS the gate2 verdict — there's no separate binary gate signal to combine. When the binary gate ran and passed, the advisor aggregate is the secondary signal (the binary gate's pass was the primary release-block check, and the advisor aggregate determines green/yellow/red for verdict handling in step 9).
 
-For each `(skill_name, output)` pair in `ADVISOR_OUTS`, classify the output into `green | yellow | red` using this contract:
+For each `(config_key, output)` pair in `ADVISOR_OUTS`, classify the output into `green | yellow | red | unknown` using this contract. If the advisor's slot was marked `unknown` in step 6 (skill unavailable), set its verdict to `unknown` and skip classification — do not fall through to the heuristic. Otherwise:
 
 1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching
    `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive). If one or more match, take the
@@ -247,10 +247,11 @@ Note: gate2 advisors do **not** support a `decline` token — declination is a g
 concept. An advisor that cannot meaningfully assess should still emit `## Verdict: yellow` with a
 note in the body explaining the limitation, rather than declining.
 
-Store the per-advisor verdicts in `ADVISOR_VERDICTS["<skill_name>"] = "<green|yellow|red>"`.
+Store the per-advisor verdicts in `ADVISOR_VERDICTS["<config_key>"] = "<green|yellow|red|unknown>"`.
 
 Compute `GATE2_VERDICT` from the collected verdicts:
 - any red → `red`
+- else any `unknown` → `yellow` (degraded confidence — at least one advisor couldn't assess)
 - else any yellow → `yellow`
 - else `green`
 
@@ -272,8 +273,8 @@ Update the state file:
   "audit": "pass | fail | skipped | unknown",
   "binary_gate": "<skill name from config, or null in advisor-only mode>",
   "advisor_verdicts": {
-    "<skill_name>": "<green|yellow|red|unknown>",
-    "<skill_name>": "<green|yellow|red|unknown>"
+    "<full_config_string>": "<green|yellow|red|unknown>",
+    "<full_config_string>": "<green|yellow|red|unknown>"
   },
   "verdict": "<aggregate>",
   "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md",
@@ -282,7 +283,7 @@ Update the state file:
 "phase": "gated"
 ```
 
-The `advisor_verdicts` map is keyed by skill name (e.g. `"cso"`, `"qa-lead"`, `"cto"` for the default config; any custom skill names for non-default configs). This replaces the v1 schema's hardcoded `cso`/`qa_lead`/`cto` fields.
+The `advisor_verdicts` map is keyed by the **full config string** (e.g. `"/claude-c-suite:cso"`, `"/claude-c-suite:qa-lead"`, `"/claude-c-suite:cto"` for the default config; any custom advisor strings for non-default configs). Using the full config string avoids key collisions between advisors from different namespaces. This replaces the v1 schema's hardcoded `cso`/`qa_lead`/`cto` fields.
 
 **Backward compatibility**: state files written by v0.1.0–v0.1.1 (v1 schema) have `gate2.cso`, `gate2.qa_lead`, `gate2.cto` as named fields instead of `advisor_verdicts`. Readers (`/gh-issue-driven:status`) must check for `advisor_verdicts` first; if absent, fall back to reading the v1 named fields and synthesizing the equivalent map: `{"cso": gate2.cso, "qa-lead": gate2.qa_lead, "cto": gate2.cto}`. See `commands/status.md` step 3 for the reader logic.
 
@@ -333,8 +334,8 @@ Closes #<issue_num>
 - gate2 mode: <advisor-only | binary-gate (<skill name>)>
 - audit: <pass | skipped | unknown>    ← see audit value semantics in commands/status.md
 - binary_gate: <configured skill name or "(none)">
-<for each (skill_name, verdict) in ADVISOR_VERDICTS:>
-- <skill_name>: <verdict>
+<for each advisor in ADVISORS (config order):>
+- <display_label>: <ADVISOR_VERDICTS[advisor]>
 </for>
 - gate1: <verdict> via /<reviewer>[, escalated to /ceo]
 
@@ -350,7 +351,7 @@ Notes on rendering the audit/binary_gate fields in the PR body:
 - `gate2 mode`: print `advisor-only` when `gate2.binary_gate` is null, otherwise `binary-gate (<skill name>)` with the configured skill name. This makes the gate2 mode explicit at the top of the summary so reviewers see immediately whether a binary gate was in play.
 - `audit`: print the value from `AUDIT_VERDICT` (pass | skipped | unknown). The `fail` value never appears in PR bodies because step 7's hard-abort path exits BEFORE step 12's PR composer runs — fail = no PR.
 - `binary_gate`: print the configured skill name when non-null, or `(none)` when null. Even in advisor-only mode, recording the explicit `(none)` makes the PR body self-documenting about the gate2 mode.
-- Advisor lines: iterated from `ADVISOR_VERDICTS` — prints one `- <skill_name>: <verdict>` line per advisor in config order. Custom `gate2.advisors` lists are rendered with their actual skill names.
+- Advisor lines: iterated from `ADVISORS` (config list order) with verdict looked up from `ADVISOR_VERDICTS`. Default skills show the stripped suffix as display label (e.g. `cso`); non-default skills show the full config string.
 
 Then create the PR:
 
@@ -549,8 +550,8 @@ PR      <PR_URL>
 
 Gate2   <aggregate verdict>
         - audit: <pass|skipped|unknown>
-        <for each (skill_name, verdict) in ADVISOR_VERDICTS:>
-        - <skill_name>: <verdict>
+        <for each advisor in ADVISORS (config order):>
+        - <display_label>: <ADVISOR_VERDICTS[advisor]>
         </for>
 
 Copilot loop: <N>/<max> iterations, final state <REVIEW_DECISION>
