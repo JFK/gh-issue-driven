@@ -164,19 +164,17 @@ Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
 
 First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
 
-> **⚠ Custom advisors note (v0.1.1 limitation)**: full dynamic iteration through `ADVISORS` happens **only in this step** (step 6). Step 8 (advisor aggregation), step 10 (state persistence), and step 12 (PR body composer) below still reference the default-config slots (`CSO_OUT` / `QA_OUT` / `CTO_OUT`) by name. If you customize `gate2.advisors` to a non-default list (different skills, more or fewer than 3), the **invocation** in step 6 will use your custom list, but the **aggregation, state persistence, and PR body** in subsequent steps will assume the default 3-advisor mapping. This is a known limitation tracked as [#27](https://github.com/JFK/gh-issue-driven/issues/27) for full v0.1.2 implementation. For v0.1.1, the safe choices are: (a) leave `gate2.advisors` at the default, OR (b) override `gate2.advisors` to exactly 3 skills with the same default semantics (e.g. `["/my-org:security", "/my-org:qa", "/my-org:tech-debt"]` — the spec text below will still use the `cso`/`qa_lead`/`cto` labels but the operator should mentally substitute their advisor names by position).
-
 **If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the advisors from `ADVISORS`:
 
 > **In a single tool-call batch, invoke each advisor skill in `ADVISORS` in parallel via the Skill tool.** With the default config, this is 3 skills (`cso`, `qa-lead`, `cto`); with a custom `gate2.advisors`, this is whatever the operator configured. Each advisor receives the same gate2 prompt block from step 5. Do not proceed until all advisors return.
 
-Capture each advisor's output by its position in `ADVISORS`: `ADVISOR_OUTS[0]`, `ADVISOR_OUTS[1]`, etc. For convenience in the rest of this command (which historically referenced `CSO_OUT`/`QA_OUT`/`CTO_OUT`), the default-config slots map as: `CSO_OUT = ADVISOR_OUTS[0]`, `QA_OUT = ADVISOR_OUTS[1]`, `CTO_OUT = ADVISOR_OUTS[2]`. Custom advisor configurations should adapt this mapping. `AUDIT_OUT` stays null.
+Capture each advisor's output keyed by its **full config string**: `ADVISOR_OUTS["/claude-c-suite:cso"]`, `ADVISOR_OUTS["/claude-c-suite:qa-lead"]`, etc. Using the full config string avoids key collisions when two advisors from different namespaces share the same suffix (e.g. `/org-a:security` and `/org-b:security`). For display purposes (PR body, recap, status), derive a **display label** by stripping the common `/claude-c-suite:` prefix for default skills, or using the full string for non-default skills. `AUDIT_OUT` stays null.
 
 **Otherwise** (`gate2.binary_gate` is a non-null skill name, e.g. `"/claude-c-suite:audit"` for plugin maintainers who maintain claude-c-suite-plugin itself):
 
 > **In a single tool-call batch, invoke the binary gate skill PLUS each advisor skill in `ADVISORS` in parallel via the Skill tool.** The binary gate skill is `gate2.binary_gate` from config (e.g. `/claude-c-suite:audit`). The advisors are still iterated from `ADVISORS` (NOT hardcoded) so that operators who customize `gate2.advisors` get their custom list invoked alongside the binary gate. With the default config, this is `1 binary gate + 3 advisors = 4 skills`; with custom `gate2.advisors`, the count depends on the operator's list. Each receives the same gate2 prompt block from step 5. Do not proceed until all skills return.
 
-Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS[0..]` for each advisor. The same default-config alias mapping applies (`CSO_OUT = ADVISOR_OUTS[0]`, etc.).
+Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS["<full_config_string>"]` for each advisor (same full-config-string keying as advisor-only mode above).
 
 In either mode, if any **advisor** skill is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return.
 
@@ -234,13 +232,13 @@ Then exit (without `FORCE`) or continue past step 7 with a loud warning (with `F
 
 This step runs in **both** modes (advisor-only and binary-gate-configured). When `AUDIT_VERDICT == "skipped"` (advisor-only mode from step 7), the advisor aggregate computed here IS the gate2 verdict — there's no separate binary gate signal to combine. When the binary gate ran and passed, the advisor aggregate is the secondary signal (the binary gate's pass was the primary release-block check, and the advisor aggregate determines green/yellow/red for verdict handling in step 9).
 
-For each of `CSO_OUT`, `QA_OUT`, `CTO_OUT`, classify into `green | yellow | red` using this contract:
+For each `(config_key, output)` pair in `ADVISOR_OUTS`, classify the output into `green | yellow | red | unknown` using this contract. If the advisor's slot was marked `unknown` in step 6 (skill unavailable), set its verdict to `unknown` and skip classification — do not fall through to the heuristic. Otherwise:
 
 1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching
    `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive). If one or more match, take the
    **LAST** occurrence (last-wins), lowercase, and use it.
 2. **Heuristic fallback** — only runs when no structured line was found. Emit one warn-level log
-   line per advisor: `verdict_parser=heuristic gate=gate2 advisor=<name> reason=no_structured_line`.
+   line per advisor: `verdict_parser=heuristic gate=gate2 advisor=<skill_name> reason=no_structured_line`.
    - **red**: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, `Critical:` 3+ times.
    - **yellow**: `WARN`, `consider`, `recommend`, `Warning:` 1–2 times.
    - **green**: none of the above.
@@ -249,10 +247,15 @@ Note: gate2 advisors do **not** support a `decline` token — declination is a g
 concept. An advisor that cannot meaningfully assess should still emit `## Verdict: yellow` with a
 note in the body explaining the limitation, rather than declining.
 
-Compute `GATE2_VERDICT`:
+Store the per-advisor verdicts in `ADVISOR_VERDICTS["<config_key>"] = "<green|yellow|red|unknown>"`.
+
+Compute `GATE2_VERDICT` from the collected verdicts:
 - any red → `red`
+- else any `unknown` → `yellow` (degraded confidence — at least one advisor couldn't assess)
 - else any yellow → `yellow`
 - else `green`
+
+If `ADVISOR_OUTS` is empty (no advisors configured or all skills unavailable), set `GATE2_VERDICT = "unknown"` and require `FORCE` to continue.
 
 ### 9. Verdict handling
 
@@ -266,17 +269,23 @@ Update the state file:
 
 ```json
 "gate2": {
+  "schema_version": 2,
   "audit": "pass | fail | skipped | unknown",
   "binary_gate": "<skill name from config, or null in advisor-only mode>",
-  "cso": "<verdict>",
-  "qa_lead": "<verdict>",
-  "cto": "<verdict>",
+  "advisor_verdicts": {
+    "<full_config_string>": "<green|yellow|red|unknown>",
+    "<full_config_string>": "<green|yellow|red|unknown>"
+  },
   "verdict": "<aggregate>",
   "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md",
   "ran_at": "<UTC ISO-8601>"
 },
 "phase": "gated"
 ```
+
+The `advisor_verdicts` map is keyed by the **full config string** (e.g. `"/claude-c-suite:cso"`, `"/claude-c-suite:qa-lead"`, `"/claude-c-suite:cto"` for the default config; any custom advisor strings for non-default configs). Using the full config string avoids key collisions between advisors from different namespaces. This replaces the v1 schema's hardcoded `cso`/`qa_lead`/`cto` fields.
+
+**Backward compatibility**: state files written by v0.1.0–v0.1.1 (v1 schema) have `gate2.cso`, `gate2.qa_lead`, `gate2.cto` as named fields instead of `advisor_verdicts`. Readers (`/gh-issue-driven:status`) must check for `advisor_verdicts` first; if absent, fall back to reading the v1 named fields and synthesizing the equivalent map: `{"cso": gate2.cso, "qa-lead": gate2.qa_lead, "cto": gate2.cto}`. See `commands/status.md` step 3 for the reader logic.
 
 The `audit` field has **four** possible values, written by either step 7's abort paths or step 10's normal flow:
 
@@ -296,7 +305,7 @@ The `audit` field has **four** possible values, written by either step 7's abort
 
 The `binary_gate` field records which skill was configured (or `null` for advisor-only), so `/gh-issue-driven:status` can render the right summary alongside the `audit` value.
 
-Write `<branch-flat>.gate2.md` with each reviewer's full output under section headers `## <binary_gate skill name>` (omit the section entirely in advisor-only mode), `## /claude-c-suite:cso`, `## /claude-c-suite:qa-lead`, `## /claude-c-suite:cto`.
+Write `<branch-flat>.gate2.md` with each reviewer's full output under section headers: `## <binary_gate skill name>` (omit the section entirely in advisor-only mode), then `## <advisor skill name>` for each advisor in `ADVISORS` order (e.g. `## /claude-c-suite:cso`, `## /claude-c-suite:qa-lead`, `## /claude-c-suite:cto` for the default config, or whatever skill names the operator configured).
 
 ### 11. Push the branch
 
@@ -325,9 +334,9 @@ Closes #<issue_num>
 - gate2 mode: <advisor-only | binary-gate (<skill name>)>
 - audit: <pass | skipped | unknown>    ← see audit value semantics in commands/status.md
 - binary_gate: <configured skill name or "(none)">
-- cso: <verdict>
-- qa-lead: <verdict>
-- cto: <verdict>
+<for each advisor in ADVISORS (config order):>
+- <display_label>: <ADVISOR_VERDICTS[advisor]>
+</for>
 - gate1: <verdict> via /<reviewer>[, escalated to /ceo]
 
 Full reviews are saved in the plugin cache:
@@ -342,7 +351,7 @@ Notes on rendering the audit/binary_gate fields in the PR body:
 - `gate2 mode`: print `advisor-only` when `gate2.binary_gate` is null, otherwise `binary-gate (<skill name>)` with the configured skill name. This makes the gate2 mode explicit at the top of the summary so reviewers see immediately whether a binary gate was in play.
 - `audit`: print the value from `AUDIT_VERDICT` (pass | skipped | unknown). The `fail` value never appears in PR bodies because step 7's hard-abort path exits BEFORE step 12's PR composer runs — fail = no PR.
 - `binary_gate`: print the configured skill name when non-null, or `(none)` when null. Even in advisor-only mode, recording the explicit `(none)` makes the PR body self-documenting about the gate2 mode.
-- `cso`/`qa-lead`/`cto`: use the default-config slot names. Operators on a custom `gate2.advisors` list should mentally substitute by position (see step 6's "Custom advisors note" — full dynamic iteration tracked as #27 for v0.1.2).
+- Advisor lines: iterated from `ADVISORS` (config list order) with verdict looked up from `ADVISOR_VERDICTS`. Default skills show the stripped suffix as display label (e.g. `cso`); non-default skills show the full config string.
 
 Then create the PR:
 
@@ -540,10 +549,10 @@ PR      <PR_URL>
         State: <draft|open>
 
 Gate2   <aggregate verdict>
-        - audit: pass
-        - cso:    <verdict>
-        - qa-lead: <verdict>
-        - cto:    <verdict>
+        - audit: <pass|skipped|unknown>
+        <for each advisor in ADVISORS (config order):>
+        - <display_label>: <ADVISOR_VERDICTS[advisor]>
+        </for>
 
 Copilot loop: <N>/<max> iterations, final state <REVIEW_DECISION>
               (or: skipped — no-copilot flag)
