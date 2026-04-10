@@ -348,7 +348,7 @@ Skip the actual `gh pr create` if `DRY_RUN` (but still build and print the body)
 
 #### 12a. Secret scan on PR body
 
-After composing the PR body (written to `/tmp/gh-issue-driven.prbody`) and **before** calling `gh pr create`, scan the full body text for recognizable secret patterns:
+This sub-step runs **after** the PR body template is built and written to `/tmp/gh-issue-driven.prbody` (below), and **before** the `gh pr create` call. Scan the full body text for recognizable secret patterns:
 
 | Pattern | What it catches |
 |---|---|
@@ -361,8 +361,8 @@ After composing the PR body (written to `/tmp/gh-issue-driven.prbody`) and **bef
 SECRET_RE='(AKIA[A-Z0-9]{16}|sk-[a-zA-Z0-9]{32,}|ghp_[a-zA-Z0-9]{36}|xox[baprs]-[a-zA-Z0-9-]{10,})'
 if grep -qE "$SECRET_RE" /tmp/gh-issue-driven.prbody; then
   echo "ABORT: PR body contains a recognizable secret pattern."
-  echo "Matched pattern(s):"
-  grep -nE "$SECRET_RE" /tmp/gh-issue-driven.prbody | sed 's/\(.\{20\}\).*/\1[redacted]/'
+  echo "Matching line number(s):"
+  grep -nE "$SECRET_RE" /tmp/gh-issue-driven.prbody | cut -d: -f1 | sed 's/^/  line /'
   echo ""
   echo "Remove the secret from the PR body and re-run /gh-issue-driven:ship."
   echo "There is no --force or --allow-secret bypass for this check."

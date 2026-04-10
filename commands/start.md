@@ -65,15 +65,22 @@ Allow-list (canonical definition for `start.md` — all downstream steps inherit
 
 | Argument | Regex | Rationale |
 |---|---|---|
+| `REPO_FULL_NAME` | `^[^/]+/[^/]+$` | Must be exactly `owner/repo` |
 | `ISSUE_NUM` | `^[1-9][0-9]{0,8}$` | Positive integer, max 9 digits |
 | `OWNER` | `^[a-zA-Z0-9._-]{1,39}$` | GitHub username rules |
 | `REPO` | `^[a-zA-Z0-9._-]{1,100}$` | GitHub repo name rules |
 
-Validation (run in a single Bash block after normalizing the issue identifier):
+Validation (run in a single Bash block immediately after step 1 normalizes the issue identifier into `REPO_FULL_NAME` and `issue_number`, before any later bash interpolation):
 
 ```bash
 set -euo pipefail
-[[ "$ISSUE_NUM" =~ ^[1-9][0-9]{0,8}$ ]]      || { echo "error: invalid issue number — '$ISSUE_NUM' does not match ^[1-9][0-9]{0,8}$"; exit 10; }
+[[ "$REPO_FULL_NAME" =~ ^[^/]+/[^/]+$ ]]      || { echo "error: invalid repo full name — '$REPO_FULL_NAME' must match owner/repo"; exit 10; }
+
+OWNER="${REPO_FULL_NAME%%/*}"
+REPO="${REPO_FULL_NAME#*/}"
+ISSUE_NUM="$issue_number"
+
+[[ "$ISSUE_NUM" =~ ^[1-9][0-9]{0,8}$ ]]       || { echo "error: invalid issue number — '$ISSUE_NUM' does not match ^[1-9][0-9]{0,8}$"; exit 10; }
 [[ "$OWNER"     =~ ^[a-zA-Z0-9._-]{1,39}$ ]]  || { echo "error: invalid owner — '$OWNER' does not match ^[a-zA-Z0-9._-]{1,39}$"; exit 10; }
 [[ "$REPO"      =~ ^[a-zA-Z0-9._-]{1,100}$ ]] || { echo "error: invalid repo — '$REPO' does not match ^[a-zA-Z0-9._-]{1,100}$"; exit 10; }
 ```
@@ -225,10 +232,11 @@ The skip path at the top of this step already covered the "context_id couldn't b
 
 Before interpolating the issue body into the reviewer prompt, run it through this sanitizer. This is the **canonical sanitizer definition** — `ship.md` step 14.d references the same algorithm for PR comment bodies.
 
-1. **Strip fenced code blocks**: replace any `` ``` … ``` `` sequence (including the language tag line if present) with `[code block removed]`. Match greedily from opening `` ``` `` to the next closing `` ``` `` (or end-of-string if unclosed).
+1. **Strip fenced code blocks**: replace each `` ``` … ``` `` fenced block (including the language tag line if present) with `[code block removed]`. Match from an opening `` ``` `` to the **nearest** subsequent closing `` ``` ``; if no closing fence exists, match to end-of-string. Apply independently for each fenced block so multiple blocks are replaced and counted separately.
 2. **Escape XML-like tags**: replace `<` with `&lt;` and `>` with `&gt;` throughout the text to neutralize `<system>`, `<instruction>`, or similar tags that an attacker might embed.
 3. **Truncate**: if the result exceeds **2000 characters**, truncate to 2000 and append ` [truncated at <original_length> chars]`.
-4. **Wrap**: enclose the final sanitized text in `<user_data>…</user_data>` tags.
+
+The sanitizer returns the processed text **without** `<user_data>` wrapping — step 8b adds the wrapper when constructing the prompt block. This avoids double-wrapping.
 
 Log the sanitization result: `sanitizer: <original_length> chars → <sanitized_length> chars, <N> code blocks removed, <truncated|not truncated>`.
 
