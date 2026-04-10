@@ -1,16 +1,16 @@
 # gh-issue-driven
 
-> ⚠️ **Alpha (v0.1.x)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end (PR #15 was merged via this plugin reviewing itself), but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
+> ⚠️ **Beta (v0.2.x)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end on real PRs, but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
 
-> **Two-phase orchestrator for GitHub-issue-driven development with multi-reviewer pre-PR gates and a Copilot review loop.**
+> **Two-phase orchestrator for GitHub-issue-driven development with multi-issue batch support, gated multi-reviewer pre-PR checks, pluggable post-PR reviewer, and Kagura Memory auto-detect.**
 
 `gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable workflow:
 
-1. **`/gh-issue-driven:start <issue>`** — fetch the issue, recall related past work from Kagura Memory, run a **gate1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation.
+1. **`/gh-issue-driven:start <issue...>`** — fetch the issue(s), recall related past work from Kagura Memory, run a **gate1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation. Pass multiple IDs to batch issues into one branch.
 2. _(you write the code)_
-3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate` for plugin maintainers who want a hard `pass`/`fail` check), create the PR, and drive a **GitHub Copilot review loop** of up to 5 iterations until the PR is approved or no actionable feedback remains.
+3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate`), create the PR, and drive a **pluggable post-PR review loop** (Copilot, `/code-review`, or both — configurable via `review.provider`) until the PR is approved or no actionable feedback remains.
 
-The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary`, so each issue's learnings get persisted for future recall.
+The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary` with **auto-detect context setup** on first run, so each issue's learnings get persisted for future recall.
 
 ---
 

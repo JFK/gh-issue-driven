@@ -1,7 +1,7 @@
 {
   "name": "gh-issue-driven",
-  "version": "0.1.2",
-  "description": "Orchestrate a full GitHub-issue-driven dev workflow — design review (gate1), branch, implement, pre-PR review battery (gate2), PR creation, Copilot review loop, and Kagura Memory persistence — across two slash commands.",
+  "version": "0.2.0",
+  "description": "Orchestrate a full GitHub-issue-driven dev workflow — design review (gate1), branch (single or multi-issue batch), implement, pre-PR review battery (gate2), PR creation, pluggable post-PR reviewer (Copilot / /code-review), and Kagura Memory persistence with auto-detect context setup.",
   "author": {
     "name": "Fumikazu Kiyota",
     "url": "https://github.com/JFK"

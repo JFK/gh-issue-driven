@@ -1,16 +1,16 @@
 # gh-issue-driven
 
-> ⚠️ **Alpha (v0.1.x)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています (PR #15 はこのプラグインが自分自身をレビューして merge されました) が、いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
+> ⚠️ **Beta (v0.2.x)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています。いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
 
-> **GitHub issue 駆動開発のための2フェーズオーケストレータ。マルチレビュアによる事前レビューゲートと Copilot レビュー自動ループ付き。**
+> **GitHub issue 駆動開発のための2フェーズオーケストレータ。マルチ issue バッチ対応、マルチレビュアによる事前レビューゲート、プラガブルな事後レビュア、Kagura Memory 自動検出付き。**
 
 `gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を1本の再現可能なワークフローに変えます：
 
-1. **`/gh-issue-driven:start <issue>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate1**（設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション）を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。
+1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate1**（設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション）を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
 2. _（あなたがコードを書く）_
-3. **`/gh-issue-driven:ship`** — **gate2**（デフォルトは `cso` + `qa-lead` + `cto` の advisor 並列実行。プラグインメンテナは `gate2.binary_gate` で optional な hard `pass`/`fail` バイナリゲートを追加可能）、PR 作成、**GitHub Copilot レビューループ**を最大5回まで自動実行（PR が approve されるか、対応すべき fb がなくなるまで）。
+3. **`/gh-issue-driven:ship`** — **gate2**（デフォルトは `cso` + `qa-lead` + `cto` の advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能）、PR 作成、**プラガブルな事後レビューループ**（Copilot / `/code-review` / both — `review.provider` で設定可能）を自動実行。
 
-ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、issue ごとの学びが永続化されます。
+ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、初回実行時は **context 自動検出**で設定不要。issue ごとの学びが永続化されます。
 
 ---
 
