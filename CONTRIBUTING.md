@@ -107,10 +107,10 @@ Variation release-to-release is fine — the point is a consistent minimum that 
 A dogfooding run **passes** when:
 
 1. It reaches `phase=done` in the state file (manual confirmation or merged), **or**
-2. It reaches `phase=pr_open` and the PR is subsequently merged during the release window, **or**
+2. It reaches `phase=pr_open` and the PR is subsequently merged before the release tag for that release is cut, **or**
 3. It stopped at a gate with an explicit maintainer override documented in the release notes ("gate2 yellow: <reason>, proceeding with --force").
 
-A run that aborted at `phase=designed` or `phase=gated` without an override does **not** count — that is a checkbox, not evidence. Note: the state file's `phase` field is set by `/gh-issue-driven:start` and `/gh-issue-driven:ship` — `done` is the terminal value written only by manual confirmation or merge; the intermediate values are `designed` (gate1 passed) → `gated` (gate2 passed) → `pr_open` (PR created).
+A run that aborted at `phase=designed` or `phase=gated` without an override does **not** count — that is a checkbox, not evidence. The `phase` field is set by `/gh-issue-driven:start` and `/gh-issue-driven:ship`; `done` is the terminal value written by manual confirmation or merge, and `pr_open` is the phase after `/ship` creates the PR. See `commands/start.md`, `commands/ship.md`, and `commands/review.md` for the full phase state machine.
 
 #### Dogfooding recovery
 
@@ -124,13 +124,24 @@ If a run aborts mid-flow (gate red, test failure, `silent_no_op`, branch protect
 
 #### Release steps
 
-Once the dogfooding gate is satisfied:
+Once the dogfooding gate is satisfied, follow **one** of the two paths below.
+
+**Recommended — automated path**: on a clean working tree on `main`, run:
+
+```bash
+/gh-issue-driven:tag
+```
+
+`/gh-issue-driven:tag` requires a clean tree and performs the version bump (`plugin.json` + `marketplace.json`), CHANGELOG update, commit, tag, push, and GitHub Release creation in one atomic ceremony. Do **not** pre-edit `plugin.json` / `marketplace.json` / `CHANGELOG.md` before running it — `/tag` owns those files and will abort on a dirty tree. After `/tag` finishes, edit the created GitHub Release to paste the dogfooding evidence bundle. `/tag` does **not** attach evidence automatically; evidence attach is tracked as a future enhancement in #43.
+
+**Manual path** (when `/tag` is unavailable or you need a custom ceremony):
 
 1. Bump `version` in **both** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (CI enforces sync).
-2. Update CHANGELOG with the new entry.
-3. `/gh-issue-driven:tag` (recommended — automates steps 3–5, including dogfooding evidence attachment). Or manually: `git tag vX.Y.Z && git push origin main --tags`.
-4. Draft or edit the GitHub Release pointing at the new tag; paste the evidence bundle from each dogfooding run.
-5. Marketplace auto-discovers the new version.
+2. Update `CHANGELOG.md` with the new entry.
+3. Commit: `git commit -am "chore: release v<X.Y.Z>"`
+4. Tag and push: `git tag v<X.Y.Z> && git push origin main --tags`
+5. `gh release create v<X.Y.Z> --generate-notes`, then edit to paste the dogfooding evidence bundle.
+6. Marketplace auto-discovers the new version.
 
 ## Code of conduct
 
