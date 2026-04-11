@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "gh-issue-driven",
-  "description": "Two-phase orchestrator for GitHub-issue-driven development with multi-issue batch support, gated multi-reviewer pre-PR checks, pluggable post-PR reviewer, and Kagura Memory auto-detect.",
+  "description": "Two-phase orchestrator for GitHub-issue-driven development with multi-issue batch support, gated multi-reviewer pre-PR checks, pluggable post-PR reviewer, release checklist as dogfooding gate, and per-repo Kagura Memory auto-detect.",
   "owner": {
     "name": "Fumikazu Kiyota",
     "email": "fumikazu.kiyota@gmail.com"
