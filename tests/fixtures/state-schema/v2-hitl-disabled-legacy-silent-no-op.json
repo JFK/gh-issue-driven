@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "issues": [
+    {
+      "number": 45,
+      "title": "copilot: add HITL gate to confirm review invocation before polling loop",
+      "url": "https://github.com/JFK/gh-issue-driven/issues/45",
+      "labels": ["enhancement"]
+    }
+  ],
+  "issue_number": 45,
+  "issue_title": "copilot: add HITL gate to confirm review invocation before polling loop",
+  "issue_url": "https://github.com/JFK/gh-issue-driven/issues/45",
+  "repo": "JFK/gh-issue-driven",
+  "branch": "45-feat/copilot-add-hitl-gate-to-confirm-review",
+  "branch_type": "feat",
+  "is_batch": false,
+  "started_at": "2026-04-11T07:29:34Z",
+  "phase": "pr_open",
+  "gate1": {
+    "reviewer": "ask",
+    "escalated_to": null,
+    "verdict": "green",
+    "summary_path": "~/.claude/cache/gh-issue-driven/45-feat-copilot-add-hitl-gate-to-confirm-review.gate1.md",
+    "ran_at": "2026-04-11T07:29:34Z"
+  },
+  "gate2": {
+    "schema_version": 2,
+    "audit": "skipped",
+    "binary_gate": null,
+    "advisor_verdicts": {
+      "/claude-c-suite:cso": "green",
+      "/claude-c-suite:qa-lead": "green",
+      "/claude-c-suite:cto": "green"
+    },
+    "verdict": "green",
+    "summary_path": "~/.claude/cache/gh-issue-driven/45-feat-copilot-add-hitl-gate-to-confirm-review.gate2.md",
+    "ran_at": "2026-04-11T10:05:00Z"
+  },
+  "pr": {
+    "number": 99,
+    "url": "https://github.com/JFK/gh-issue-driven/pull/99",
+    "state": "draft",
+    "created_at": "2026-04-11T10:10:00Z"
+  },
+  "review": {
+    "schema_version": 2,
+    "provider": "copilot",
+    "total_loops_run": 1,
+    "providers_completed": [],
+    "copilot": {
+      "loops_run": 1,
+      "max_loops": 5,
+      "last_state": null,
+      "last_polled_at": "2026-04-11T10:25:00Z",
+      "detection_method": "neither",
+      "exit_reason": "silent_no_op"
+    }
+  },
+  "dry_run": false
+}

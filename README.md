@@ -132,22 +132,38 @@ If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emittin
 
 ## Copilot review loop
 
-After `gh pr create`, `/gh-issue-driven:ship` runs:
+After `gh pr create`, `/gh-issue-driven:ship` fires the reviewer add and pauses at a **HITL confirmation gate** (since v0.3.0) before entering the polling loop:
 
 ```text
-gh pr edit <num> --add-reviewer @copilot
+Copilot review on PR #<num>
+https://github.com/<owner>/<repo>/pull/<num>
+
+Is Copilot review running on this PR?
+  1) Yes, it's running (or I triggered it another way)
+  2) No, skip the review loop for this run
+  3) Retry — let me trigger it now (I'll press Yes when ready)
 ```
 
-Then loops up to **5 iterations** (configurable):
+The plugin cannot verify from outside whether Copilot actually accepted the `--add-reviewer` call — org permissions, Copilot billing/policy, Mode A toggle, manual comment-mention triggers, and draft-PR unreliability are not API-queryable. Rather than grow a detection matrix, the plugin asks you. If the PR is a draft, the prompt also surfaces the draft-PR unreliability caveat so you can pre-emptively decline and promote first.
+
+On **Yes**, the plugin enters the polling loop (up to **5 iterations**, configurable):
 
 1. Wait for new Copilot activity (poll `gh pr view --json reviews,comments,reviewDecision` every 60s, max 15min).
 2. Parse the latest review and any new bot comments.
-3. **Exit conditions**: `APPROVED`, no actionable feedback, max loops, or generic "no issues found".
+3. **Exit conditions**: `approved`, `no_actionable_feedback`, `max_loops`, `tests_failed`, or `silent_no_op` (now means "confirmed but did not respond" — a genuine anomaly, not a catch-all).
 4. Apply actionable comments via `Edit`/`Bash`. Skip nits.
 5. Run local tests if `copilot.run_tests_after_edits` is true.
 6. Commit `fix: address Copilot review (loop N)`, push, re-request review.
 
+On **No**, the plugin writes `exit_reason="hitl_declined"` to the state file, keeps the PR as draft, and skips the loop cleanly. When you're ready (e.g., after triggering Copilot via the Web UI or promoting from draft), re-enter the loop with `/gh-issue-driven:review` — the gate re-prompts because the decline was "skip this run", not "never ask again".
+
+On **Retry**, the same prompt re-displays immediately. The plugin does not poll or wait between re-emits — you self-pace (trigger Copilot through whatever path you have, then press Yes when ready).
+
 The loop is **never blocking**: if it exhausts 5 iterations, the PR stays open and you handle remaining feedback manually.
+
+### Disabling the HITL gate
+
+Set `copilot.hitl_confirm_invocation: false` in `~/.claude/gh-issue-driven-config.json` to restore the pre-v0.3.0 behavior (no prompt, loop enters directly after the `--add-reviewer` fire-and-forget). Useful for CI or non-interactive environments where the operator cannot respond to the prompt.
 
 ### Requirements (one of)
 
@@ -162,9 +178,9 @@ Both also require: the repo must have GitHub Copilot code review feature availab
 
 If you can't enable Mode A AND can't upgrade `gh` to 2.88.0+:
 
-1. After the plugin creates the PR, open it in the GitHub Web UI.
-2. In the right sidebar → Reviewers → click "Copilot".
-3. Re-run `/gh-issue-driven:ship` once Copilot's review lands. (Resume mode is tracked as [#14](https://github.com/JFK/gh-issue-driven/issues/14).)
+1. After the plugin creates the PR, the HITL gate prompts you.
+2. Open the PR in the GitHub Web UI → Reviewers → click "Copilot".
+3. Press **Yes** when the HITL prompt re-displays (or choose **Retry** first, trigger Copilot, then press Yes).
 
 ---
 

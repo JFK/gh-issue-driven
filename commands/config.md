@@ -20,7 +20,7 @@ The 3-layer policy governs what gets localized:
 
 - **Layer A — Durable artifacts (always English)**: PR title/body, commit messages, branch names, state JSON values. NEVER localized regardless of `lang`.
 - **Layer B — Operator-facing ephemeral (configurable)**: this is what `lang` controls. When `lang != "en"`, Claude produces these in the specified language on the fly. The templates in command files stay English — Claude translates them at execution time.
-- **Layer C — Parser tokens (always English-strict)**: `## Verdict: green|yellow|red|decline|pass|fail`, `exit_reason` enum values (`silent_no_op`, `no_actionable_feedback`, `approved`, `max_loops`, `tests_failed`), `detection_method` enum values (`requested_reviewers`, `latest_reviews`, `neither`). NEVER localized — these are parser contract.
+- **Layer C — Parser tokens (always English-strict)**: `## Verdict: green|yellow|red|decline|pass|fail`, `exit_reason` enum values (`silent_no_op`, `no_actionable_feedback`, `approved`, `max_loops`, `tests_failed`, `hitl_declined`), `detection_method` enum values (`requested_reviewers`, `latest_reviews`, `neither`), `hitl_decision` enum string values (`confirmed`, `declined`). NEVER localized — these are parser contract. For `hitl_decision`, the field may also be JSON `null` or absent entirely (backward compat with pre-v0.3.0 state files and gate-disabled runs) — absent/null is NOT a literal enum value, it is the "no value" sentinel that readers treat as "gate was not run".
 
 When `lang != "en"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a language hint appended that includes the raw `lang` value for determinism, with a best-effort human-readable name (e.g. `Please respond in Japanese (日本語) (lang: ja).`). The raw value ensures correctness even for BCP-47 tags like `zh-Hans` or `pt-BR` where the human-readable name may be ambiguous. Reviewer responses then naturally produce localized review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English). This is best-effort — reviewer skills are separate plugins and may occasionally respond in English regardless of the hint.
 
@@ -63,7 +63,19 @@ Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalon
 
 **`/code-review` requirements**: The `/code-review` plugin must be installed. It requires an existing PR (invoked after step 12). It posts a PR comment rather than a structured verdict — the review command reads the comment and extracts actionable findings. Missing-plugin behavior: both `/gh-issue-driven:ship` and `/gh-issue-driven:review` warn and skip only the `/code-review` portion when it is not installed. If provider is `"code-review"`, the review step exits cleanly with a warning. If provider is `"both"`, Copilot still runs.
 
-**Draft PR compatibility**: `/code-review` works on draft PRs (reads `gh pr diff` directly). Copilot review on a draft PR is not reliable and will typically result in `silent_no_op` rather than a usable review outcome (see memory `85c3fd82`). If you need Copilot review, promote the PR to ready-for-review first. With provider set to `"both"` on a draft PR, `/code-review` can still run even if the Copilot portion does not.
+**Draft PR compatibility**: `/code-review` works on draft PRs (reads `gh pr diff` directly). Copilot review on a draft PR is not reliable and will typically result in `silent_no_op` rather than a usable review outcome (see memory `85c3fd82`). If you need Copilot review, promote the PR to ready-for-review first. With provider set to `"both"` on a draft PR, `/code-review` can still run even if the Copilot portion does not. When `copilot.hitl_confirm_invocation` is `true` (default, see below), the HITL gate surfaces this caveat in the prompt text when the PR is draft, so the operator can preemptively decline and promote before re-entering via `/gh-issue-driven:review`.
+
+### `copilot.hitl_confirm_invocation`
+
+When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before entering the Copilot polling loop and ask the operator via `AskUserQuestion` whether Copilot review should actually be invoked. The gate has three options: **Yes** (proceed to the loop, records `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>`), **No** (skip the loop cleanly, records `exit_reason="hitl_declined"` and `hitl_decision="declined"`), **Retry** (re-present the prompt immediately — the plugin does not poll between re-emits).
+
+**Why it exists**: the `gh pr edit --add-reviewer @copilot` call is fire-and-forget and cannot be programmatically verified. Real failure modes (org permissions, Copilot billing/policy, Mode A/B toggle, manual comment-mention triggers, draft-PR unreliability) are not API-queryable. Instead of growing a detection matrix, the plugin asks the operator — who can see the PR — to confirm.
+
+**Skip conditions**: the gate is silently bypassed when `DRY_RUN` is set, when `REVIEW_PROVIDER` is not `copilot` or `both`, or when the prior state already has `review.copilot.hitl_confirmed_at` set (re-entry from a prior `/ship` or `/review` invocation that already confirmed — prevents double-prompting on resume).
+
+**`silent_no_op` semantics** change with this gate: before v0.3.0, `silent_no_op` meant "Copilot was never detected — cause unknown". After v0.3.0, `silent_no_op` means "operator confirmed invocation (or gate was disabled) AND Copilot still did not respond" — a real anomaly signal. The decline path uses `hitl_declined` as a separate, intentional terminal state.
+
+**Set to `false`** to restore the pre-v0.3.0 behavior exactly (no prompt, no `hitl_*` fields in state). Useful for CI or non-interactive environments where the operator cannot respond to AskUserQuestion.
 
 ### `memory.context_id`
 
@@ -157,7 +169,8 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "silent_no_op_threshold_polls": 3,
     "run_tests_after_edits": true,
     "reply_to_non_actionable": false,
-    "skip_setup_prompt": false
+    "skip_setup_prompt": false,
+    "hitl_confirm_invocation": true
   },
   "pr": {
     "draft_default": true,

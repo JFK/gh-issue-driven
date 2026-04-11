@@ -159,6 +159,16 @@ REVIEWER_LOGIN="<from copilot.reviewer_login config, default '@copilot'>"
 gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 ```
 
+Before entering the polling loop below, apply the **HITL confirmation gate** as defined in `ship.md` step 13c. The gate logic is identical — same skip conditions (`DRY_RUN`, `PROVIDER` not `copilot`/`both`, `copilot.hitl_confirm_invocation=false`, prior `review.copilot.hitl_confirmed_at` set in state), same AskUserQuestion prompt (Yes / No / Retry), same draft-PR hint injection when the PR is draft.
+
+On **decline**, write the full v2 `review` block per `ship.md` step 13c.d — including all invariants documented there: carry forward prior `total_loops_run`, carry forward prior `providers_completed` unchanged, **carry forward prior `review.code_review` sub-block unchanged if present** (critical for `provider=both` re-entry after `/code-review` already ran), `hitl_confirmed_at=null`, `exit_reason=hitl_declined`, `hitl_decision=declined`, `loops_run=0`. Then **skip sub-steps 5b and 5c and step 6 entirely, and continue directly to step 7 (recap)** — step 6's normal state writer must not run, or it would overwrite the declined state with mid-loop values.
+
+On **confirm**, set `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>` in-memory and let step 6 merge them into the normal state write at the end of the loop.
+
+On **re-entry** where `hitl_confirmed_at` is already set in prior state, skip the prompt **but carry forward the prior confirmation**: read `review.copilot.hitl_confirmed_at` and `review.copilot.hitl_decision` from the existing state file and set the in-memory values accordingly so step 6's normal state writer preserves them. Do NOT write null/absent for these fields on re-entry — that would clobber the prior confirmation and re-enable prompting on the next invocation (self-defeating the re-entry guard). Then continue to step 5b.
+
+See `ship.md` step 13c for the DESIGN NOTES comment documenting re-entry semantics, state-write invariants, and the retry UX rationale.
+
 #### 5b. Polling loop
 
 Initialize:
@@ -188,11 +198,13 @@ Update detection state per ship.md step 14.a rules.
 **Parse activity**: Identify `REVIEW_DECISION` and `NEW_COMMENTS` per ship.md step 14.b.
 
 **Exit conditions** (check in order):
-1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → `exit_reason="silent_no_op"`
+1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → `exit_reason="silent_no_op"` (since v0.3.0: only when the loop actually ran, which means either the operator confirmed HITL at step 13c OR the gate was bypassed via `copilot.hitl_confirm_invocation=false` — it no longer fires on HITL decline, which uses `hitl_declined` instead)
 2. `REVIEW_DECISION == APPROVED` → `exit_reason="approved"`
 3. No new comments AND no `CHANGES_REQUESTED` → `exit_reason="no_actionable_feedback"`
 4. Iteration equals `max_loops` → `exit_reason="max_loops"`
 5. Generic comments only → `exit_reason="no_actionable_feedback"`
+
+A sixth terminal state `exit_reason="hitl_declined"` is set by the HITL gate between steps 5a and 5b (see the delegation block above) when the operator declined the Copilot invocation — the polling loop never enters in that case. The loop's exit condition list here does not include it because step 5b is skipped entirely on decline.
 
 **Address actionable comments**: Same as ship.md step 14.d — sanitize comment bodies, apply changes, run tests if configured.
 
@@ -223,7 +235,7 @@ If the PR is a draft AND `exit_reason == "approved"`:
 gh pr ready "$PR_NUMBER"
 ```
 
-If promotion fails, warn but do not abort. For any other exit_reason, leave as draft.
+If promotion fails, warn but do not abort. For any other `exit_reason` (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`, `hitl_declined`), leave the PR as draft.
 
 ### 6. Update state file
 
@@ -241,7 +253,9 @@ Update `~/.claude/cache/gh-issue-driven/<branch-flat>.json`:
     "last_state": "<REVIEW_DECISION>",
     "last_polled_at": "<UTC ISO-8601>",
     "detection_method": "<requested_reviewers|latest_reviews|neither>",
-    "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op>"
+    "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op|hitl_declined>",
+    "hitl_decision": "<confirmed|declined|null>",
+    "hitl_confirmed_at": "<UTC ISO-8601 | null>"
   },
   "code_review": {
     "ran_at": "<UTC ISO-8601>",
