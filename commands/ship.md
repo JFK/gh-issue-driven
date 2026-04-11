@@ -609,13 +609,15 @@ Write the full v2 `review` block (not just a sub-block). Remove any legacy top-l
     "exit_reason": "hitl_declined",
     "hitl_decision": "declined",
     "hitl_confirmed_at": null
-  }
+  },
+  "code_review": <prior review.code_review from state, or omit if not present>
 }
 ```
 
 **State write invariants for the declined path** (deviating from these breaks the PR #38 class of bug):
 - `total_loops_run` MUST be read from prior state and carried forward unchanged (default 0 if absent or legacy schema). Writing 0 on a resume silently corrupts the cross-invocation accumulator.
 - `providers_completed` MUST be carried forward unchanged (declined ≠ completed). A future `/review` re-entry still sees `copilot` absent from `providers_completed`, so the loop can be re-attempted.
+- `code_review` sub-block, if present in prior state, MUST be carried forward unchanged. This matters when `REVIEW_PROVIDER="both"` and step 13a (the `/code-review` path) already ran and wrote its findings before the operator declined the Copilot gate — overwriting the block with absent/null would silently erase those findings from `/gh-issue-driven:status` output. If the prior state has no `review.code_review`, omit the key entirely (do not write `null`).
 - `hitl_confirmed_at` MUST be `null` on decline. This is the re-entry gate for subsequent `/ship resume` and `/review` invocations — a non-null value would silently suppress the prompt on re-entry (wrong behavior: decline means "skip this run", not "never ask again").
 - `exit_reason` MUST be `hitl_declined` — the Layer C enum value defined in `config.md:23`.
 - `hitl_decision` MUST be `declined` — matches the `exit_reason`. The `tests/test_state_schema.sh` contract invariant check enforces this pairing in CI.
@@ -682,7 +684,7 @@ Read the JSON from the most recent poll. Identify:
 
 Each exit condition sets a specific `exit_reason` so `/gh-issue-driven:status` and post-mortem can distinguish them:
 
-1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. Since v0.3.0, this state only fires AFTER the operator confirmed Copilot invocation at step 13c (or when the HITL gate is disabled via `copilot.hitl_confirm_invocation=false`) — it now means "confirmed but did not respond", a genuine anomaly rather than a catch-all for unknown causes. Log a warning: `Copilot review was confirmed but did not respond after <N> polls — this is unusual. Check the PR state, verify Copilot is active, or rerun with /gh-issue-driven:review.`
+1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. Since v0.3.0, this state only fires when step 14 actually ran, which means either (a) the operator confirmed Copilot invocation at step 13c, or (b) the HITL gate was bypassed via `copilot.hitl_confirm_invocation=false` — in both cases step 14 proceeded and Copilot still did not respond. It is now a genuine anomaly rather than a catch-all for unknown causes. Log a warning: `Copilot review did not respond after <N> polls — this is unusual. Check the PR state, verify Copilot is active, or rerun with /gh-issue-driven:review.`
 2. `REVIEW_DECISION == APPROVED` → break with `exit_reason="approved"`.
 3. No new comments AND no `CHANGES_REQUESTED` review since `START_TS` → break with `exit_reason="no_actionable_feedback"`.
 4. Iteration counter equals `max_loops` → break with `exit_reason="max_loops"`.
@@ -857,7 +859,7 @@ Stop. Do not continue running anything else.
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
-| No Copilot activity after `silent_no_op_threshold_polls` polls in step 14 | Exit loop with `exit_reason=silent_no_op`, write state, continue to memory step. Since v0.3.0 this only fires AFTER HITL confirmation — it means "confirmed but did not respond", a real anomaly. |
+| No Copilot activity after `silent_no_op_threshold_polls` polls in step 14 | Exit loop with `exit_reason=silent_no_op`, write state, continue to memory step. Since v0.3.0 this only fires when step 14 actually ran (operator confirmed at 13c, OR `copilot.hitl_confirm_invocation=false` bypassed the gate) — it means "Copilot did not respond despite being invoked", a real anomaly. |
 | `gh < 2.88.0` AND auto-review off | Step 1 emits a warn; if the operator then confirms the HITL gate, step 14's polling will trip `silent_no_op` after the threshold polls. |
 | Operator declines HITL gate at step 13c | Write declined state via 13c.d (`exit_reason=hitl_declined`, `hitl_decision=declined`, `hitl_confirmed_at=null`, `loops_run=0`). PR stays draft. Re-entry via `/gh-issue-driven:review` re-prompts the gate. |
 | Tests fail mid-loop | Stop loop, save state, report. Do not commit broken code. |

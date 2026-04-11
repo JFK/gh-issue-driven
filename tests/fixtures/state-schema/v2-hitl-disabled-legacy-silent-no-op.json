@@ -54,9 +54,7 @@
       "last_state": null,
       "last_polled_at": "2026-04-11T10:25:00Z",
       "detection_method": "neither",
-      "exit_reason": "silent_no_op",
-      "hitl_decision": null,
-      "hitl_confirmed_at": null
+      "exit_reason": "silent_no_op"
     }
   },
   "dry_run": false

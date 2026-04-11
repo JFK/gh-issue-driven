@@ -159,7 +159,13 @@ REVIEWER_LOGIN="<from copilot.reviewer_login config, default '@copilot'>"
 gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 ```
 
-Before entering the polling loop below, apply the **HITL confirmation gate** as defined in `ship.md` step 13c. The gate logic is identical — same skip conditions (`DRY_RUN`, `PROVIDER` not `copilot`/`both`, `copilot.hitl_confirm_invocation=false`, prior `review.copilot.hitl_confirmed_at` set in state), same AskUserQuestion prompt (Yes / No / Retry), same draft-PR hint injection when the PR is draft. The state-write semantics also mirror `ship.md` step 13c.d: on decline, write the full v2 `review` block with `exit_reason="hitl_declined"`, `hitl_decision="declined"`, `hitl_confirmed_at=null`, `loops_run=0`, preserving prior `total_loops_run` and `providers_completed` unchanged — then exit cleanly (do not enter the polling loop below). On confirm, set `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>` in-memory and let step 6 merge them into the normal state write at the end of the loop. On re-entry where `hitl_confirmed_at` is already set in prior state, skip the gate entirely.
+Before entering the polling loop below, apply the **HITL confirmation gate** as defined in `ship.md` step 13c. The gate logic is identical — same skip conditions (`DRY_RUN`, `PROVIDER` not `copilot`/`both`, `copilot.hitl_confirm_invocation=false`, prior `review.copilot.hitl_confirmed_at` set in state), same AskUserQuestion prompt (Yes / No / Retry), same draft-PR hint injection when the PR is draft.
+
+On **decline**, write the full v2 `review` block per `ship.md` step 13c.d — including ALL 5 invariants documented there: carry forward prior `total_loops_run`, carry forward prior `providers_completed` unchanged, **carry forward prior `review.code_review` sub-block unchanged if present** (critical for `provider=both` re-entry after `/code-review` already ran), `hitl_confirmed_at=null`, `exit_reason=hitl_declined`, `hitl_decision=declined`, `loops_run=0`. Then **skip sub-steps 5b and 5c and step 6 entirely, and continue directly to step 7 (recap)** — step 6's normal state writer must not run, or it would overwrite the declined state with mid-loop values.
+
+On **confirm**, set `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>` in-memory and let step 6 merge them into the normal state write at the end of the loop.
+
+On **re-entry** where `hitl_confirmed_at` is already set in prior state, skip the gate entirely (no prompt) and continue to step 5b.
 
 See `ship.md` step 13c for the DESIGN NOTES comment documenting re-entry semantics, state-write invariants, and the retry UX rationale.
 
