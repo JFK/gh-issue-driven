@@ -132,7 +132,7 @@ When `DRAFT` is `true`, the PR is created with `--draft`. After the Copilot revi
 gh pr ready "$PR_NUMBER"
 ```
 
-If the loop exits for any other reason (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`), the PR stays as draft — the operator can manually promote it after reviewing the Copilot feedback.
+If the loop exits for any other reason (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`, `hitl_declined`), the PR stays as draft — the operator can manually promote it after reviewing the Copilot feedback (or re-invoke via `/gh-issue-driven:review` when ready, for the `hitl_declined` case).
 
 ### 2a. Resume checkpoint
 
@@ -536,7 +536,91 @@ REVIEWER_LOGIN="<from copilot.reviewer_login config, default '@copilot'>"
 gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 ```
 
-Continue to step 14 unconditionally (step 14 owns all Copilot detection).
+Continue to step 13c.
+
+#### 13c. HITL: Copilot invocation confirmation
+
+<!-- DESIGN NOTES (for future-JFK, do not delete):
+  Re-entry: this gate runs on every ship/review invocation when copilot.hitl_confirm_invocation=true.
+  It is NOT one-shot — the config flag means "ask every time", not a per-PR latch.
+  State-write invariant: 13c.d (declined path) and 14.g (normal path) BOTH write the full
+  review block. 13c.d is the skipped-path writer — see PR #38 for why skipped-path writers
+  must produce a complete block. Omitting fields breaks /status, /review re-entry, and the
+  tests/test_state_schema.sh contract invariant for hitl_declined.
+  Retry UX: Retry loops back to this same AskUserQuestion. Retries are not persisted — the
+  plugin does NOT poll between re-emits. The operator self-paces ("press Yes when ready").
+  Re-entry gate: hitl_confirmed_at is the SOLE re-entry guard. hitl_decision is a historical
+  log, not a skip signal. Decline leaves hitl_confirmed_at=null, so /review re-prompts.
+-->
+
+Skip this sub-step entirely (and proceed to step 14 with `HITL_CONFIRMED=false`, `HITL_CONFIRMED_AT=null`) if any of the following hold:
+
+1. `DRY_RUN` is set
+2. `REVIEW_PROVIDER` is not `copilot` or `both`
+3. `copilot.hitl_confirm_invocation` is `false` in the effective config (default `true`)
+4. The existing state file already has `review.copilot.hitl_confirmed_at` set to a non-null value (re-entry guard — prevents a second prompt on `/gh-issue-driven:ship resume` after the operator already confirmed in a prior invocation)
+
+Otherwise, ask the operator via the **AskUserQuestion tool**. Construct the question text as follows (Layer B — Claude translates at runtime when `lang != "en"`):
+
+Preamble line (always):
+```
+Copilot review on PR #<PR_NUMBER>
+<PR_URL>
+```
+
+If `DRAFT` is `true`, append a hint paragraph:
+```
+Note: this is a draft PR. Copilot review is unreliable on drafts — consider 'No, skip' and promote to ready-for-review first (`gh pr ready <PR_NUMBER>`). After promoting, re-enter the review loop with /gh-issue-driven:review.
+```
+
+Then the question and options:
+
+> **Question**: "Is Copilot review running on this PR?"
+>
+> **Options** (Layer B, English templates — localized when `lang != "en"`):
+> - `"Yes, it's running (or I triggered it another way)"`
+> - `"No, skip the review loop for this run"`
+> - `"Retry — let me trigger it now (I'll press Yes when ready)"`
+
+Handle the response:
+
+- **"Yes, it's running (or I triggered it another way)"**: set `HITL_CONFIRMED=true` and `HITL_CONFIRMED_AT=<current UTC ISO-8601>` in-memory. These two values are merged into step 14.g's normal state write as `hitl_decision="confirmed"` and `hitl_confirmed_at=<timestamp>` on the `copilot` sub-block. Continue to step 14.
+- **"No, skip the review loop for this run"**: set `HITL_CONFIRMED=false`. Execute sub-step 13c.d below, then skip to step 15 (the memory step). Do NOT enter step 14.
+- **"Retry — let me trigger it now (I'll press Yes when ready)"**: re-emit this same AskUserQuestion immediately. Do not sleep, do not poll, do not call `gh pr view`. The operator self-paces — they trigger Copilot via whatever path they have (Web UI, custom webhook, manual `gh pr edit`), then press Yes when they can confirm.
+
+#### 13c.d. Write declined state (skipped-Copilot-path state writer)
+
+This sub-step runs only when the operator chose "No, skip" in step 13c. It is the sole state writer for the declined path — step 14 and its 14.g normal-path writer are both skipped.
+
+Write the full v2 `review` block (not just a sub-block). Remove any legacy top-level `copilot` key. This is critical because step 14 never runs, so 14.g never fires — without this write, there would be no record of the HITL decision in state, and `/gh-issue-driven:status` + `/gh-issue-driven:review` would see an incoherent partial state.
+
+```json
+"review": {
+  "schema_version": 2,
+  "provider": "<REVIEW_PROVIDER>",
+  "total_loops_run": <prior review.total_loops_run from state, default 0>,
+  "providers_completed": <prior review.providers_completed from state, default []>,
+  "copilot": {
+    "loops_run": 0,
+    "max_loops": <from config copilot.max_loops>,
+    "last_state": null,
+    "last_polled_at": null,
+    "detection_method": "neither",
+    "exit_reason": "hitl_declined",
+    "hitl_decision": "declined",
+    "hitl_confirmed_at": null
+  }
+}
+```
+
+**State write invariants for the declined path** (deviating from these breaks the PR #38 class of bug):
+- `total_loops_run` MUST be read from prior state and carried forward unchanged (default 0 if absent or legacy schema). Writing 0 on a resume silently corrupts the cross-invocation accumulator.
+- `providers_completed` MUST be carried forward unchanged (declined ≠ completed). A future `/review` re-entry still sees `copilot` absent from `providers_completed`, so the loop can be re-attempted.
+- `hitl_confirmed_at` MUST be `null` on decline. This is the re-entry gate for subsequent `/ship resume` and `/review` invocations — a non-null value would silently suppress the prompt on re-entry (wrong behavior: decline means "skip this run", not "never ask again").
+- `exit_reason` MUST be `hitl_declined` — the Layer C enum value defined in `config.md:23`.
+- `hitl_decision` MUST be `declined` — matches the `exit_reason`. The `tests/test_state_schema.sh` contract invariant check enforces this pairing in CI.
+
+After writing the state file, continue to step 15 (memory step), skipping step 14 entirely.
 
 ### 14. Copilot review loop
 
@@ -598,7 +682,7 @@ Read the JSON from the most recent poll. Identify:
 
 Each exit condition sets a specific `exit_reason` so `/gh-issue-driven:status` and post-mortem can distinguish them:
 
-1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. This means Copilot was never detected after N polls — likely `gh < 2.88.0` AND Automatic Copilot code review is not enabled. Log a warning: `Copilot not detected after <N> polls — run /gh-issue-driven:doctor for setup guidance`.
+1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. Since v0.3.0, this state only fires AFTER the operator confirmed Copilot invocation at step 13c (or when the HITL gate is disabled via `copilot.hitl_confirm_invocation=false`) — it now means "confirmed but did not respond", a genuine anomaly rather than a catch-all for unknown causes. Log a warning: `Copilot review was confirmed but did not respond after <N> polls — this is unusual. Check the PR state, verify Copilot is active, or rerun with /gh-issue-driven:review.`
 2. `REVIEW_DECISION == APPROVED` → break with `exit_reason="approved"`.
 3. No new comments AND no `CHANGES_REQUESTED` review since `START_TS` → break with `exit_reason="no_actionable_feedback"`.
 4. Iteration counter equals `max_loops` → break with `exit_reason="max_loops"`.
@@ -668,7 +752,9 @@ Write the `review` block (replaces the legacy `copilot` top-level key). If a leg
     "last_state": "<REVIEW_DECISION>",
     "last_polled_at": "<UTC ISO-8601>",
     "detection_method": "<requested_reviewers|latest_reviews|neither>",
-    "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op>"
+    "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op|hitl_declined>",
+    "hitl_decision": "<confirmed|declined|null>",
+    "hitl_confirmed_at": "<UTC ISO-8601 | null>"
   },
   "code_review": {
     "ran_at": "<UTC ISO-8601>",
@@ -686,7 +772,9 @@ Field semantics:
 - `total_loops_run` accumulates across all invocations of ship (including `resume`) and `/gh-issue-driven:review`. It does not reset. When `RESUME` is true, read the prior value from state and add to it.
 - `providers_completed` is an array of provider names that have successfully run. Grows across invocations (e.g., first ship run completes `code-review`, second resume run completes `copilot` → `["code-review", "copilot"]`).
 - `detection_method` is set on the first poll in step 14.a that detects Copilot activity, and carried unchanged through every subsequent loop iteration. It records which signal first flagged Copilot as present — high diagnostic value when investigating "why did the loop run / not run" later. Stays `"neither"` when the loop exits via `silent_no_op`.
-- `exit_reason` is `null` (or absent) while the loop is still iterating, and gets its terminal value when one of the exit conditions in 14.c (or 14.d's test-failure stop) fires. The five enumerated terminal values are: `approved`, `no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`.
+- `exit_reason` is `null` (or absent) while the loop is still iterating, and gets its terminal value when one of the exit conditions in 14.c (or 14.d's test-failure stop, or step 13c.d's HITL decline) fires. The six enumerated terminal values are: `approved`, `no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`, `hitl_declined`. The first five are set inside step 14 (loop ran to some terminal state); `hitl_declined` is the only one set by step 13c.d (loop never entered).
+- `hitl_decision` is `"confirmed"` when the operator confirmed Copilot invocation at step 13c, `"declined"` when they chose to skip, or `null` when the HITL gate was skipped entirely (gate disabled via `copilot.hitl_confirm_invocation=false`, `DRY_RUN`, re-entry with prior `hitl_confirmed_at` set, or provider not `copilot`/`both`).
+- `hitl_confirmed_at` is the UTC ISO-8601 timestamp of the operator's confirmation, or `null` when `hitl_decision` is not `"confirmed"`. This is the SOLE re-entry gate: if non-null, a subsequent `/ship resume` or `/gh-issue-driven:review` on the same branch skips step 13c (the operator already confirmed). Decline leaves it `null`, so re-entry re-prompts.
 
 **Backward compatibility**: State files written by v0.1.x have a top-level `copilot` block instead of `review`. Readers (`/gh-issue-driven:status`, `/gh-issue-driven:review`) must check for `review` first; if absent, fall back to reading the legacy `copilot` block and synthesize the equivalent: `{ provider: "copilot", total_loops_run: copilot.loops_run, copilot: { ...legacy fields } }`.
 
@@ -702,7 +790,7 @@ If `DRAFT` is `true` AND `exit_reason` is `"approved"`, promote the PR from draf
 gh pr ready "$PR_NUMBER"
 ```
 
-If the promotion fails (e.g., permissions), log a warning but do not abort — the PR is still usable as a draft. For any other `exit_reason` (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`), leave the PR as draft.
+If the promotion fails (e.g., permissions), log a warning but do not abort — the PR is still usable as a draft. For any other `exit_reason` (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`, `hitl_declined`), leave the PR as draft.
 
 Update the state file with `pr.state` reflecting the outcome: `"ready"` if promotion succeeded, `"draft"` if it was skipped or failed. This makes the draft→ready transition observable via `/gh-issue-driven:status`.
 
@@ -769,8 +857,9 @@ Stop. Do not continue running anything else.
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
-| No Copilot activity after `silent_no_op_threshold_polls` polls in step 14 | Exit loop with `exit_reason=silent_no_op`, write state, continue to memory step. |
-| `gh < 2.88.0` AND auto-review off | Step 1 emits a warn; step 14's polling then trips `silent_no_op` after the configured threshold polls. |
+| No Copilot activity after `silent_no_op_threshold_polls` polls in step 14 | Exit loop with `exit_reason=silent_no_op`, write state, continue to memory step. Since v0.3.0 this only fires AFTER HITL confirmation — it means "confirmed but did not respond", a real anomaly. |
+| `gh < 2.88.0` AND auto-review off | Step 1 emits a warn; if the operator then confirms the HITL gate, step 14's polling will trip `silent_no_op` after the threshold polls. |
+| Operator declines HITL gate at step 13c | Write declined state via 13c.d (`exit_reason=hitl_declined`, `hitl_decision=declined`, `hitl_confirmed_at=null`, `loops_run=0`). PR stays draft. Re-entry via `/gh-issue-driven:review` re-prompts the gate. |
 | Tests fail mid-loop | Stop loop, save state, report. Do not commit broken code. |
 | `resume` with no state file | Abort. Suggest running `/gh-issue-driven:ship` without resume first. |
 | `resume` with `phase < pr_open` | Abort. PR not yet created. Run ship without resume to create it. |

@@ -88,10 +88,16 @@ Review  provider: <review.provider>
         Copilot: <review.copilot.loops_run>/<review.copilot.max_loops>, last state: <review.copilot.last_state>
         Detection: <review.copilot.detection_method>   ← (omit line if absent in state)
         Exit:      <review.copilot.exit_reason>        ← (omit line if absent / loop still in progress)
+        HITL:      <review.copilot.hitl_decision>      ← (omit line if null or absent — backward compat with v0.2.x state files)
+        HITL confirmed: <relative time of hitl_confirmed_at>  ← (omit line if hitl_confirmed_at is null or absent)
         Last polled: <relative time>
 ```
 
-The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`. When `exit_reason == "silent_no_op"`, also append a one-line hint pointing at `/gh-issue-driven:doctor` so the operator can confirm Mode A or upgrade gh.
+The `Detection` and `Exit` lines are produced by `commands/ship.md` step 13 and step 14. They are the post-mortem signal for "did the loop run, and if not, why" — see ship.md step 14.g for the field semantics. If the state file does not have these fields (e.g. the branch was started before they existed, or the loop is still mid-iteration), omit the corresponding line rather than printing `null`.
+
+The `HITL` and `HITL confirmed` lines are produced by `ship.md` step 13c (the HITL invocation gate). They are the operator's decision signal — "confirmed" means the operator explicitly OK'd Copilot invocation, "declined" means they chose to skip this run (paired with `exit_reason=hitl_declined` and `loops_run=0`). Omit both lines when `hitl_decision` is `null` or absent — this handles (a) state files written before v0.3.0, (b) runs where `copilot.hitl_confirm_invocation=false` disabled the gate, (c) runs where `DRY_RUN` skipped the gate, and (d) code-review-only paths where the gate was never reached.
+
+When `exit_reason == "silent_no_op"`, also append a one-line hint. Since v0.3.0, the hint wording changes with context: when `hitl_decision == "confirmed"` (the operator confirmed Copilot and Copilot still did not respond), the hint is **"Copilot review was confirmed but did not respond — this is unusual. Check the PR state, verify Copilot is active, or rerun with `/gh-issue-driven:review`."** When `hitl_decision` is `null` (gate was disabled or bypassed), use the legacy hint: **"run `/gh-issue-driven:doctor` to verify Mode A or upgrade gh"**.
 
 #### Review block — v1/v2 schema compatibility
 
