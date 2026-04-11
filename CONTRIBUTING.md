@@ -73,10 +73,63 @@ If you maintain a c-suite or phd-panel skill, **adding the Verdict line is the s
 
 ## Releasing
 
+Releases have two parts: the **release checklist** (dogfooding gate, below) and the mechanical tag-and-push ceremony (`/gh-issue-driven:tag` automates steps 1–5).
+
+### Release checklist — dogfooding gate
+
+**Rule**: before cutting any `v*` tag, `/gh-issue-driven:start` + `/gh-issue-driven:ship` must be run end-to-end against representative issues. Output evidence from each run is attached to the release notes. The purpose is to make dogfooding a hard gate, not a hope — each release proves the plugin works on itself before shipping.
+
+#### Required run count by release type
+
+| Release type | Runs required | Representative issues |
+|---|---|---|
+| `patch` (`x.y.Z → x.y.Z+1`) | **1** | The most representative fix in the release (typically *the* headline fix). In many cases, the release PR itself is the dogfooding run — no extra work needed. |
+| `minor` (`x.Y.z → x.Y+1.0`) | **3** | 1 trivial typo, 1 mid-size feature, 1 cross-cutting redesign. |
+| `major` (`X.y.z → X+1.0.0`) | **3** | Same 3 categories as minor, **plus** explicit sign-off from CSO and CTO reviewer skills (`/claude-c-suite:cso` and `/claude-c-suite:cto`) captured in the release notes. |
+
+If a required category has no representative issue in the current cycle (e.g. a clean patch with no typos in the backlog), substitute with the next-closest-grain item — a README tweak or comment fix for the typo slot, the largest spec-surface feature for the cross-cutting slot. Document the substitution in the release notes.
+
+#### Evidence bundle schema (minimum)
+
+For each dogfooding run, attach the following to the release notes as a markdown code block or linked release artifact:
+
+```
+- state JSON: ~/.claude/cache/gh-issue-driven/<branch-flat>.json
+- gate1.md:   ~/.claude/cache/gh-issue-driven/<branch-flat>.gate1.md
+- gate2.md:   ~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md  (if gate2 ran)
+- PR URL:     https://github.com/<owner>/<repo>/pull/<N>
+```
+
+Variation release-to-release is fine — the point is a consistent minimum that lets a reviewer reconstruct what happened.
+
+#### Pass criterion
+
+A dogfooding run **passes** when:
+
+1. It reaches `phase=done` in the state file (manual confirmation or merged), **or**
+2. It reaches `phase=pr_open` and the PR is subsequently merged during the release window, **or**
+3. It stopped at a gate with an explicit maintainer override documented in the release notes ("gate2 yellow: <reason>, proceeding with --force").
+
+A run that aborted at `phase=designed` or `phase=gated` without an override does **not** count — that is a checkbox, not evidence. Note: the state file's `phase` field is set by `/gh-issue-driven:start` and `/gh-issue-driven:ship` — `done` is the terminal value written only by manual confirmation or merge; the intermediate values are `designed` (gate1 passed) → `gated` (gate2 passed) → `pr_open` (PR created).
+
+#### Dogfooding recovery
+
+If a run aborts mid-flow (gate red, test failure, `silent_no_op`, branch protection block during `/tag`):
+
+- **Do NOT rerun from scratch** after `/gh-issue-driven:tag` steps 7–10 have mutated files. Re-running duplicates CHANGELOG entries, re-bumps manifests, and fails on tag collision. Recover from the point of failure step by step.
+- **Do** capture the failure state in the release notes: `Dogfooding run N — aborted at phase X, reason: Y`.
+- A failed dogfooding run does **not** automatically block the release. It requires maintainer judgment:
+  - **Real regression** → fix the underlying issue, rerun the relevant dogfooding run, and only tag once it passes.
+  - **Flaky gate signal** (non-deterministic advisor yellow, transient API error, environmental hiccup) → document the reason and proceed. Gate yellow from an advisor is advisory, not a release blocker.
+
+#### Release steps
+
+Once the dogfooding gate is satisfied:
+
 1. Bump `version` in **both** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (CI enforces sync).
-2. Update CHANGELOG (when one exists).
-3. `git tag vX.Y.Z && git push origin main --tags`
-4. Draft a GitHub Release pointing at the new tag.
+2. Update CHANGELOG with the new entry.
+3. `/gh-issue-driven:tag` (recommended — automates steps 3–5, including dogfooding evidence attachment). Or manually: `git tag vX.Y.Z && git push origin main --tags`.
+4. Draft or edit the GitHub Release pointing at the new tag; paste the evidence bundle from each dogfooding run.
 5. Marketplace auto-discovers the new version.
 
 ## Code of conduct

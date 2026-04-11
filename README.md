@@ -295,6 +295,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 CI runs `lint.yml` on every push and PR — JSON syntax, version sync, name sync, and command frontmatter parseability.
 
+Before cutting any `v*` tag, maintainers follow the [Release checklist (dogfooding gate)](CONTRIBUTING.md#release-checklist--dogfooding-gate): `patch` releases require 1 representative run, `minor`/`major` releases require 3 runs across typo / mid-size feature / cross-cutting categories, with evidence attached to the release notes.
+
 ---
 
 ## License
