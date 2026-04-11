@@ -1,16 +1,42 @@
 # gh-issue-driven
 
-> ⚠️ **Beta (v0.2.x)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end on real PRs, but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
+[![GitHub release](https://img.shields.io/github/v/release/JFK/gh-issue-driven)](https://github.com/JFK/gh-issue-driven/releases)
+[![CI](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml/badge.svg)](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml)
+[![License: MIT](https://img.shields.io/github/license/JFK/gh-issue-driven)](LICENSE)
 
-> **Two-phase orchestrator for GitHub-issue-driven development with multi-issue batch support, gated multi-reviewer pre-PR checks, pluggable post-PR reviewer, and Kagura Memory auto-detect.**
+**English** | [日本語](README.ja.md)
 
-`gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable workflow:
+> ⚠️ **Beta (v0.3.0)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end on real PRs, but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
 
-1. **`/gh-issue-driven:start <issue...>`** — fetch the issue(s), recall related past work from Kagura Memory, run a **gate1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation. Pass multiple IDs to batch issues into one branch.
-2. _(you write the code)_
-3. **`/gh-issue-driven:ship`** — run a **gate2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate`), create the PR, and drive a **pluggable post-PR review loop** (Copilot, `/code-review`, or both — configurable via `review.provider`) until the PR is approved or no actionable feedback remains.
+> **Three-phase orchestrator for GitHub-issue-driven development: design-gated `start`, advisor + Copilot-gated `ship`, and ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and Kagura Memory auto-detect.**
+
+`gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable three-phase workflow:
+
+```mermaid
+graph LR
+    I[Issue #N] --> S["/start<br/>Gate 1: design"]
+    S --> IMP["implement<br/>+ /simplify"]
+    IMP --> SH["/ship<br/>Gate 2 + Copilot"]
+    SH --> T["/tag<br/>release ceremony"]
+    T --> R[GitHub Release]
+
+    S -.HITL.-> H1((pause))
+    SH -.HITL.-> H2((pause))
+
+    style H1 fill:#ffe4b5
+    style H2 fill:#ffe4b5
+    style I fill:#e6f3ff
+    style R fill:#d4edda
+```
+
+1. **`/gh-issue-driven:start <issue...>`** — fetch the issue(s), recall related past work from Kagura Memory, run a **gate 1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation. Pass multiple IDs to batch issues into one branch.
+2. _(you write the code, then `/simplify` to review the diff)_
+3. **`/gh-issue-driven:ship`** — run a **gate 2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate`), create the PR, and drive a **pluggable post-PR review loop** (Copilot, `/code-review`, or both — configurable via `review.provider`) until the PR is approved or no actionable feedback remains. A **HITL confirmation gate** pauses before the Copilot loop starts, so you can decide whether to invoke it for this PR.
+4. **`/gh-issue-driven:tag <version>`** — release ceremony: compose label-grouped release notes from the milestone, bump `plugin.json` + `marketplace.json`, update `CHANGELOG.md`, commit, annotated-tag, push with `--follow-tags`, and create the GitHub Release. `dry-run` previews everything without touching files, git, or GitHub.
 
 The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary` with **auto-detect context setup** on first run, so each issue's learnings get persisted for future recall.
+
+> 📖 **Read the design philosophy**: [Qiita article — Issue→Release を自動化したら、逆に人間が重要になった話](https://qiita.com/kiyotaman/items/302c8b7dc2cbcec555ff) · [Slides](https://docs.google.com/presentation/d/1eVUJLepOofN5bJUC7GBK7grPgTqRdfge5Ft9izaK8k4/edit)
 
 ---
 
@@ -46,7 +72,10 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 /gh-issue-driven:start 142       # phase 1 (single issue)
 /gh-issue-driven:start 4 12 20   # or batch multiple issues into one branch
 # ... implement, then /simplify to review the diff ...
-/gh-issue-driven:ship            # phase 2
+/gh-issue-driven:ship            # phase 2 (gate2 + Copilot loop)
+# ... after PR is merged, when the milestone is ready ...
+/gh-issue-driven:tag 0.3.0 dry-run   # phase 3 preview
+/gh-issue-driven:tag 0.3.0           # phase 3 execute (release ceremony)
 ```
 
 > **Why Step 0 matters**: GitHub's "Automatic Copilot code review" repo setting auto-requests Copilot's review on every PR open and every push, making the loop self-sustaining on any `gh` version. Without it, the plugin falls back to `gh pr edit --add-reviewer @copilot`, which **silently no-ops** on `gh < 2.88.0` (see [#15](https://github.com/JFK/gh-issue-driven/issues/15)). `/gh-issue-driven:doctor` will prompt you to confirm Step 0 once per 7 days per repo and hard-fail if neither path is available.
@@ -55,19 +84,21 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | Fetch issue(s), run gate1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`. |
-| `/gh-issue-driven:ship [flags]` | Run gate2, create PR, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`. |
-| `/gh-issue-driven:doctor [verbose|fix]` | Read-only environment health check. |
-| `/gh-issue-driven:config [show|init|path|<key>]` | Show effective config or stamp a fresh template. |
-| `/gh-issue-driven:status [<branch>|all]` | Show gh-issue-driven state for a branch (or all branches). |
+| Command | Phase | What it does |
+|---|---|---|
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | Fetch issue(s), run gate 1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`. |
+| `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, HITL gate, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`. |
+| `/gh-issue-driven:review [flags]` | 2 | Re-run the post-PR review loop on an already-open PR (Copilot, `/code-review`, or both). Re-entrant by design. Flags: `dry-run`, `force`. |
+| `/gh-issue-driven:tag <version> [flags]` | 3 | Release ceremony: compose release notes, bump manifests, update `CHANGELOG.md`, commit, annotated-tag, push, create GitHub Release. Flags: `dry-run`, `force`, `--notes-file=<path>`. |
+| `/gh-issue-driven:doctor [verbose\|fix]` | — | Read-only environment health check. |
+| `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | Show effective config or stamp a fresh template. |
+| `/gh-issue-driven:status [<branch>\|all]` | — | Show gh-issue-driven state for a branch (or all branches). |
 
 ---
 
-## How the gates work
+## How the three phases work
 
-### Gate 1 — Design review (`/gh-issue-driven:start`)
+### Phase 1 — `/gh-issue-driven:start` (Gate 1: design review)
 
 Runs **after** the issue is fetched and recall is done, **before** the branch is created. Strategy:
 
@@ -76,7 +107,7 @@ Runs **after** the issue is fetched and recall is done, **before** the branch is
 3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
 4. **green** → continue. **yellow** → ask the user to confirm. **red** → abort unless `force`.
 
-### Gate 2 — Pre-PR review battery (`/gh-issue-driven:ship`)
+### Phase 2 — `/gh-issue-driven:ship` (Gate 2: pre-PR review battery + Copilot loop)
 
 Runs **after** the implementation, **before** the PR is created. By default, **3 advisor reviewers** fire in parallel in a single Claude turn (advisor-only mode):
 
@@ -103,6 +134,25 @@ Plugin maintainers who want a **hard binary gate** (a `pass`/`fail` reviewer tha
 When set, the configured skill is invoked alongside the 3 advisors as a 4th reviewer. Its verdict (`pass`/`fail`) is read as a hard release gate.
 
 The default is `null` (no binary gate). Earlier versions defaulted to `/claude-c-suite:audit`, but that skill is the conformance script for the `claude-c-suite` plugin's own command files — it errors out on any other plugin and previously blocked every `/ship` invocation in non-claude-c-suite-plugin repos. The fix landed in v0.1.1 (#26).
+
+### Phase 3 — `/gh-issue-driven:tag` (release ceremony)
+
+Runs **after** the PR has been merged into the default branch and the milestone is ready. The ceremony is deliberately structured so that **all checks run before any file mutations** — if anything fails, the working tree stays clean:
+
+1. **Pre-flight**: default branch? clean worktree? up-to-date with remote?
+2. **Milestone readiness**: the milestone matching the version has no open issues (or `force` to override with a loud warning).
+3. **Lint + tests**: `check-frontmatter.py` and any `tests/*.sh` run before touching files.
+4. **Compose release notes**: milestone's closed issues are grouped by label (`bug` → "Bug Fixes", `enhancement` → "Enhancements", etc. via `tag.label_group_map`) with an auto-generated "Full Changelog" compare link.
+5. **Bump manifests**: `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` via the Edit tool (not sed — for traceability). Fails loud if the two files are out of sync before the bump.
+6. **Update `CHANGELOG.md`**: prepend a dated entry linking to the GitHub Release page.
+7. **Commit**: `chore: release v<version>` (the three release files only).
+8. **Annotated tag**: `git tag -a v<version>` (annotated is required so `--follow-tags` picks it up).
+9. **Push**: `git push --follow-tags origin <default_branch>` — commit and tag together, no partial-failure window.
+10. **Create GitHub Release**: `gh release create v<version> --notes-file ...` using the composed notes.
+
+Use `dry-run` to preview every step (release notes content, manifest diff, CHANGELOG entry, git command list) without touching files, git, or GitHub. This is the only command in the plugin that pushes to the default branch — every other command forbids that.
+
+If `git push` is rejected by branch protection, the command does not loop or retry. Instead, it prints a **recovery workflow** that preserves the already-created local commit and tag, walking you through a short-lived PR for the version bump so you don't lose work or re-run the destructive steps.
 
 ### Verdict line convention
 
@@ -295,7 +345,7 @@ For each:
 - **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (tracked in [#10](https://github.com/JFK/gh-issue-driven/issues/10)).
 - **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync).
 
-For the full list of known issues, see the [v0.2.1](https://github.com/JFK/gh-issue-driven/milestone/5) and [v0.3.0](https://github.com/JFK/gh-issue-driven/milestone/3) milestones.
+For the full list of known issues, see the [v0.4.0 milestone](https://github.com/JFK/gh-issue-driven/milestone/6).
 
 ---
 

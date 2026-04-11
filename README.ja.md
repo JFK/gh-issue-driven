@@ -1,16 +1,42 @@
 # gh-issue-driven
 
-> ⚠️ **Beta (v0.2.x)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています。いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
+[![GitHub release](https://img.shields.io/github/v/release/JFK/gh-issue-driven)](https://github.com/JFK/gh-issue-driven/releases)
+[![CI](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml/badge.svg)](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml)
+[![License: MIT](https://img.shields.io/github/license/JFK/gh-issue-driven)](LICENSE)
 
-> **GitHub issue 駆動開発のための2フェーズオーケストレータ。マルチ issue バッチ対応、マルチレビュアによる事前レビューゲート、プラガブルな事後レビュア、Kagura Memory 自動検出付き。**
+[English](README.md) | **日本語**
 
-`gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を1本の再現可能なワークフローに変えます：
+> ⚠️ **Beta (v0.3.0)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています。いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
 
-1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate1**（設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション）を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
-2. _（あなたがコードを書く）_
-3. **`/gh-issue-driven:ship`** — **gate2**（デフォルトは `cso` + `qa-lead` + `cto` の advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能）、PR 作成、**プラガブルな事後レビューループ**（Copilot / `/code-review` / both — `review.provider` で設定可能）を自動実行。
+> **GitHub issue 駆動開発のための 3 フェーズオーケストレータ: 設計ゲート付き `start` → advisor + Copilot ゲート付き `ship` → リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、Kagura Memory 自動検出付き。**
+
+`gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を 1 本の再現可能な 3 フェーズワークフローに変えます:
+
+```mermaid
+graph LR
+    I[Issue #N] --> S["/start<br/>Gate1 設計"]
+    S --> IMP["実装 + /simplify"]
+    IMP --> SH["/ship<br/>Gate2 + Copilot"]
+    SH --> T["/tag<br/>リリース儀式"]
+    T --> R[GitHub Release]
+
+    S -.HITL.-> H1((立ち止まり))
+    SH -.HITL.-> H2((立ち止まり))
+
+    style H1 fill:#ffe4b5
+    style H2 fill:#ffe4b5
+    style I fill:#e6f3ff
+    style R fill:#d4edda
+```
+
+1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate 1**(設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション)を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
+2. _(あなたがコードを書き、`/simplify` で diff をレビュー)_
+3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)、PR 作成、**プラガブルな事後レビューループ**(Copilot / `/code-review` / both — `review.provider` で設定可能)を自動実行。Copilot ループに入る直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
+4. **`/gh-issue-driven:tag <version>`** — リリース儀式: milestone の closed issues をラベルごとにグルーピングしてリリースノート生成、`plugin.json` + `marketplace.json` の version bump、`CHANGELOG.md` 更新、コミット、annotated tag、`--follow-tags` で push、GitHub Release 作成。`dry-run` ですべてを事前プレビュー可能(ファイル・git・GitHub を一切触らない)。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、初回実行時は **context 自動検出**で設定不要。issue ごとの学びが永続化されます。
+
+> 📖 **設計思想を読む**: [Qiita 記事 — Issue→Release を自動化したら、逆に人間が重要になった話](https://qiita.com/kiyotaman/items/302c8b7dc2cbcec555ff) · [スライド資料](https://docs.google.com/presentation/d/1eVUJLepOofN5bJUC7GBK7grPgTqRdfge5Ft9izaK8k4/edit)
 
 ---
 
@@ -45,7 +71,10 @@
 /gh-issue-driven:start 142       # フェーズ1（単一 issue）
 /gh-issue-driven:start 4 12 20   # 複数 issue を1ブランチにまとめることも可能
 # ... 実装、その後 /simplify で diff レビュー ...
-/gh-issue-driven:ship            # フェーズ2
+/gh-issue-driven:ship            # フェーズ2 (gate2 + Copilot ループ)
+# ... PR が main にマージされ、milestone が release ready になったら ...
+/gh-issue-driven:tag 0.3.0 dry-run   # フェーズ3 プレビュー
+/gh-issue-driven:tag 0.3.0           # フェーズ3 実行 (リリース儀式)
 ```
 
 > **ステップ0 が必要な理由**: GitHub の "Automatic Copilot code review" リポジトリ設定を有効にすると、PR 作成時と push のたびに Copilot レビューが自動で要求されるため、gh CLI のバージョンに関係なくループが自走します。有効化していない場合、プラグインは `gh pr edit --add-reviewer @copilot` にフォールバックしますが、これは `gh < 2.88.0` で **silent に no-op します** ([#15](https://github.com/JFK/gh-issue-driven/issues/15) 参照)。`/gh-issue-driven:doctor` は repo ごとに7日間隔でステップ0 の確認 prompt を出し、どちらのモードも使えない場合は hard fail します。
@@ -54,19 +83,21 @@
 
 ## コマンド一覧
 
-| コマンド | 動作 |
-|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | issue 取得、gate1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>` |
-| `/gh-issue-driven:ship [flags]` | gate2、PR 作成、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft` |
-| `/gh-issue-driven:doctor [verbose|fix]` | read-only な環境健康診断 |
-| `/gh-issue-driven:config [show|init|path|<key>]` | 実効設定の表示、テンプレート初期化 |
-| `/gh-issue-driven:status [<branch>|all]` | カレントブランチ（または全ブランチ）の state 表示 |
+| コマンド | フェーズ | 動作 |
+|---|---|---|
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>` |
+| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft` |
+| `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
+| `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
+| `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
+| `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
+| `/gh-issue-driven:status [<branch>\|all]` | — | カレントブランチ(または全ブランチ)の state 表示 |
 
 ---
 
-## ゲートの仕組み
+## 3 フェーズの仕組み
 
-### Gate 1 — 設計レビュー（`/gh-issue-driven:start`）
+### Phase 1 — `/gh-issue-driven:start`(Gate 1: 設計レビュー)
 
 issue 取得と recall の **後**、ブランチ作成の **前** に走ります。戦略：
 
@@ -75,7 +106,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析する。構造化行が canonical で last-wins、case は正規化、末尾の句読点は許容。キーワードヒューリスティックは構造化行が無い場合の **fallback のみ** で、warn ログを emit して soft-deprecation の追跡が可能。
 4. **green** → 続行 / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
 
-### Gate 2 — PR 作成直前のレビューバッテリー（`/gh-issue-driven:ship`）
+### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + Copilot ループ)
 
 実装の **後**、PR 作成の **前** に走ります。デフォルトでは **3つの advisor reviewer** が 1ターン内で並列発火 (advisor-only mode)：
 
@@ -102,6 +133,25 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 設定すると、その skill が advisor 3つに加えて 4つ目のレビュアとして並列発火し、その verdict (`pass`/`fail`) がハードリリースゲートとして読まれる。
 
 デフォルトは `null` (binary gate なし)。以前のバージョンは `/claude-c-suite:audit` がデフォルトだったが、これは `claude-c-suite-plugin` 自身の規約遵守チェッカーであり、他のプラグイン (gh-issue-driven 含む) では script が存在せずエラーで終わる → 全 `/ship` invocation を block していた。v0.1.1 (#26) で修正。
+
+### Phase 3 — `/gh-issue-driven:tag`(リリース儀式)
+
+PR が default branch にマージされ、milestone の準備が整った後に実行します。儀式は「**すべてのチェックをファイル変更の前に寄せる**」構造になっているため、どこかで失敗しても作業ツリーはクリーンなままです:
+
+1. **Pre-flight**: default branch にいるか? 作業ツリーはクリーンか? remote と同期しているか?
+2. **Milestone readiness**: 指定バージョンに対応する milestone に open issues が残っていないか(残っている場合は `force` で警告付き続行)。
+3. **Lint + tests**: `check-frontmatter.py` と `tests/*.sh` がファイル変更前に走る。
+4. **リリースノート生成**: milestone の closed issues をラベルでグルーピング(`bug` → "Bug Fixes"、`enhancement` → "Enhancements" など `tag.label_group_map` で設定可)、"Full Changelog" 比較リンク付き。
+5. **Manifest bump**: `.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` を Edit tool で更新(traceability のため sed は使わない)。2 ファイルが bump 前から非同期な場合は abort。
+6. **CHANGELOG.md 更新**: 先頭に日付付きエントリを prepend、GitHub Release ページへリンク。
+7. **Commit**: `chore: release v<version>`(リリース3ファイルのみ stage)。
+8. **Annotated tag**: `git tag -a v<version>`(annotated が必須 ― `--follow-tags` は lightweight tag を拾わない)。
+9. **Push**: `git push --follow-tags origin <default_branch>` で commit と tag を一緒に送信、partial-failure window を閉じる。
+10. **GitHub Release 作成**: `gh release create v<version> --notes-file ...` で生成したノートを使用。
+
+`dry-run` フラグで各ステップの効果(リリースノート完全版、manifest diff、CHANGELOG 追加行、git コマンド列)を事前プレビューできます ― ファイル・git・GitHub を一切触りません。このコマンドは **default branch に push する唯一のコマンド** です(他のコマンドは全て default branch への push を禁止しています)。
+
+`git push` が branch protection で拒否された場合、コマンドはループや再試行をしません。代わりに、ローカルに作成済みの commit と tag を保持したまま、**リカバリワークフロー** (短命ブランチ経由の PR で version bump をマージする手順)を表示します ― 作業を失わず、destructive ステップを再実行しません。
 
 ### Verdict 行の規約
 
@@ -131,26 +181,42 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 ## Copilot レビューループ
 
-`gh pr create` の後、`/gh-issue-driven:ship` は次のように動きます：
+`gh pr create` の後、`/gh-issue-driven:ship` はレビュアの add を発火し、polling loop に入る前に **HITL 確認ゲート** で立ち止まります(v0.3.0 以降):
 
 ```text
-gh pr edit <num> --add-reviewer @copilot
+Copilot review on PR #<num>
+https://github.com/<owner>/<repo>/pull/<num>
+
+Is Copilot review running on this PR?
+  1) Yes, it's running (or I triggered it another way)
+  2) No, skip the review loop for this run
+  3) Retry — let me trigger it now (I'll press Yes when ready)
 ```
 
-そして **最大5ループ**（設定可）回します：
+Copilot が `--add-reviewer` の呼び出しを実際に受理したかどうか、プラグイン側からは検証できません ― org 権限、Copilot の課金/ポリシー、Mode A トグル、手動のコメントメンション経由の trigger、draft PR の不安定さなど、API で問い合わせ不能な要因が多いためです。検出マトリクスを肥大化させる代わりに、プラグインはあなたに聞きます。PR が draft の場合、draft PR の不安定性についての注意書きも prompt で表示され、事前に No を選んで promote してから再実行できます。
 
-1. `gh pr view --json reviews,comments,reviewDecision` を 60秒ごとに poll、最大15分待機
-2. 最新レビューと新しい bot コメントをパース
-3. **終了条件**：`APPROVED` / 対応すべき fb なし / max loops 到達 / "no issues found" 系のみ
-4. actionable なコメントは `Edit` / `Bash` で実適用、nit はスキップ
-5. `copilot.run_tests_after_edits` が true ならローカルテスト実行
-6. `fix: address Copilot review (loop N)` で commit、push、レビュー再依頼
+**Yes** を選ぶと、polling loop に入ります(デフォルト **最大 5 回**、設定可):
 
-ループは **never-blocking**：5周使い切っても PR は開いたまま、残りは手動で対応してもらいます。
+1. Copilot の新しい activity を待つ(`gh pr view --json reviews,comments,reviewDecision` を 60秒ごとに poll、最大 15 分)。
+2. 最新レビューと新しい bot コメントをパース。
+3. **終了条件**: `approved` / `no_actionable_feedback` / `max_loops` / `tests_failed` / `silent_no_op` (「confirmed されたが反応が無い」という真の anomaly を意味し、catch-all ではない)。
+4. actionable なコメントを `Edit` / `Bash` で適用。nit は skip。
+5. `copilot.run_tests_after_edits` が true ならローカルテスト実行。
+6. `fix: address Copilot review (loop N)` で commit、push、レビュー再依頼。
+
+**No** を選ぶと、state ファイルに `exit_reason="hitl_declined"` を書き、PR を draft のままにして loop を clean に skip します。準備ができたら(例: Web UI で Copilot を trigger した後、draft から promote した後)、`/gh-issue-driven:review` で loop を再実行できます ― decline は「今回は skip」の意味であり「二度と聞くな」ではないため、ゲートは再度 prompt します。
+
+**Retry** を選ぶと、同じ prompt が即座に再表示されます。プラグインは poll も wait もしません ― あなた自身のペースで Copilot を trigger し、準備ができたら Yes を押してください。
+
+ループは **never-blocking**: 5 周使い切っても PR は開いたまま、残りは手動で対応します。
+
+### HITL ゲートの無効化
+
+`~/.claude/gh-issue-driven-config.json` で `copilot.hitl_confirm_invocation: false` を設定すると、v0.3.0 以前の動作(prompt なしで `--add-reviewer` 発火後そのまま loop 開始)に戻せます。CI や非対話環境で operator が prompt に応答できない場合に有用です。
 
 ### 必要なバージョン (どちらか一方)
 
-Copilot ループには **2つの動作モード**があり、**どちらか一方**が成立していればループが end-to-end で動きます：
+Copilot ループには **2つの動作モード**があり、**どちらか一方**が成立していればループが end-to-end で動きます:
 
 - **Mode A (推奨)** — リポジトリ設定で `Settings → Code review → ☑ Automatic Copilot code review` を有効化。**任意の `gh` CLI バージョンで動く**。Copilot が PR 作成時と push のたびに自動で要求される。
 - **Mode B** — `gh` CLI **v2.88.0 以降** ([2026年3月の Changelog](https://github.blog/changelog/2026-03-11-request-copilot-code-review-from-github-cli/) で追加された本物の `--add-reviewer @copilot` サポート)。それ以前の `gh` バージョンでは手動 reviewer add が silent に no-op する ([#15](https://github.com/JFK/gh-issue-driven/issues/15) 参照)。
@@ -159,11 +225,11 @@ Copilot ループには **2つの動作モード**があり、**どちらか一�
 
 ### Web UI による手動フォールバック
 
-Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードできない場合：
+Mode A を有効化できず、`gh` も 2.88.0+ にアップグレードできない場合:
 
-1. プラグインが PR を作成した後、GitHub Web UI で PR を開く。
-2. 右サイドバー → Reviewers → "Copilot" をクリック。
-3. Copilot のレビューが届いたら `/gh-issue-driven:ship` を再実行する。(resume mode は [#14](https://github.com/JFK/gh-issue-driven/issues/14) で追跡中。)
+1. プラグインが PR を作成した後、HITL ゲートが prompt を出します。
+2. GitHub Web UI で PR を開く → Reviewers → "Copilot" をクリック。
+3. HITL prompt が再表示されたら **Yes** を押す(または先に **Retry** を選んで Copilot を trigger してから Yes を押す)。
 
 ---
 
@@ -252,7 +318,7 @@ skill が見つからない場合の degrade：
 - **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない ([#10](https://github.com/JFK/gh-issue-driven/issues/10) で追跡)。
 - **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。
 
-既知 issue の全リストは [v0.2.1](https://github.com/JFK/gh-issue-driven/milestone/5)、[v0.3.0](https://github.com/JFK/gh-issue-driven/milestone/3) の milestone を参照してください。
+既知 issue の全リストは [v0.4.0 milestone](https://github.com/JFK/gh-issue-driven/milestone/6) を参照してください。
 
 ---
 
