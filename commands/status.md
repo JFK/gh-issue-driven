@@ -145,8 +145,9 @@ If `$ARGUMENTS == "all"`:
 
 3. Sort by `started_at` descending.
 4. Print a footer line: `<count> tracked branches.`
-5. If any row has `copilot.exit_reason == "silent_no_op"`, append a single hint after the footer:
+5. If any row has `(.review.copilot.exit_reason // .copilot.exit_reason) == "silent_no_op"`, append a single hint after the footer:
    `Hint: <N> branch(es) hit Copilot silent_no_op — run /gh-issue-driven:doctor to verify Mode A or upgrade gh.`
+   The v1/v2 compatible path (`review.copilot.exit_reason` first, fall back to legacy `copilot.exit_reason`) mirrors the single-branch reader logic above — without this, v2 state files never trigger the hint.
 
 ### 5. Hint footer
 
