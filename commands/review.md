@@ -161,7 +161,7 @@ gh pr edit "$PR_NUMBER" --add-reviewer "$REVIEWER_LOGIN" >/dev/null 2>&1 || true
 
 Before entering the polling loop below, apply the **HITL confirmation gate** as defined in `ship.md` step 13c. The gate logic is identical — same skip conditions (`DRY_RUN`, `PROVIDER` not `copilot`/`both`, `copilot.hitl_confirm_invocation=false`, prior `review.copilot.hitl_confirmed_at` set in state), same AskUserQuestion prompt (Yes / No / Retry), same draft-PR hint injection when the PR is draft.
 
-On **decline**, write the full v2 `review` block per `ship.md` step 13c.d — including ALL 5 invariants documented there: carry forward prior `total_loops_run`, carry forward prior `providers_completed` unchanged, **carry forward prior `review.code_review` sub-block unchanged if present** (critical for `provider=both` re-entry after `/code-review` already ran), `hitl_confirmed_at=null`, `exit_reason=hitl_declined`, `hitl_decision=declined`, `loops_run=0`. Then **skip sub-steps 5b and 5c and step 6 entirely, and continue directly to step 7 (recap)** — step 6's normal state writer must not run, or it would overwrite the declined state with mid-loop values.
+On **decline**, write the full v2 `review` block per `ship.md` step 13c.d — including all invariants documented there: carry forward prior `total_loops_run`, carry forward prior `providers_completed` unchanged, **carry forward prior `review.code_review` sub-block unchanged if present** (critical for `provider=both` re-entry after `/code-review` already ran), `hitl_confirmed_at=null`, `exit_reason=hitl_declined`, `hitl_decision=declined`, `loops_run=0`. Then **skip sub-steps 5b and 5c and step 6 entirely, and continue directly to step 7 (recap)** — step 6's normal state writer must not run, or it would overwrite the declined state with mid-loop values.
 
 On **confirm**, set `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>` in-memory and let step 6 merge them into the normal state write at the end of the loop.
 
@@ -204,7 +204,7 @@ Update detection state per ship.md step 14.a rules.
 4. Iteration equals `max_loops` → `exit_reason="max_loops"`
 5. Generic comments only → `exit_reason="no_actionable_feedback"`
 
-A sixth terminal state `exit_reason="hitl_declined"` is set by the HITL gate in step 5a (see above) when the operator declined the Copilot invocation — the polling loop never enters in that case. The loop's exit condition list here does not include it because step 5b is skipped entirely on decline.
+A sixth terminal state `exit_reason="hitl_declined"` is set by the HITL gate between steps 5a and 5b (see the delegation block above) when the operator declined the Copilot invocation — the polling loop never enters in that case. The loop's exit condition list here does not include it because step 5b is skipped entirely on decline.
 
 **Address actionable comments**: Same as ship.md step 14.d — sanitize comment bodies, apply changes, run tests if configured.
 
