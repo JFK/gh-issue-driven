@@ -198,7 +198,7 @@ Update detection state per ship.md step 14.a rules.
 **Parse activity**: Identify `REVIEW_DECISION` and `NEW_COMMENTS` per ship.md step 14.b.
 
 **Exit conditions** (check in order):
-1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → `exit_reason="silent_no_op"` (since v0.3.0: only after confirmed HITL invocation)
+1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → `exit_reason="silent_no_op"` (since v0.3.0: only when the loop actually ran, which means either the operator confirmed HITL at step 13c OR the gate was bypassed via `copilot.hitl_confirm_invocation=false` — it no longer fires on HITL decline, which uses `hitl_declined` instead)
 2. `REVIEW_DECISION == APPROVED` → `exit_reason="approved"`
 3. No new comments AND no `CHANGES_REQUESTED` → `exit_reason="no_actionable_feedback"`
 4. Iteration equals `max_loops` → `exit_reason="max_loops"`
