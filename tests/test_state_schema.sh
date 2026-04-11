@@ -55,6 +55,38 @@ check "$F" "v2-batch: branch has batch"   '.branch | contains("batch")' "true"
 # Compose Closes lines
 check "$F" "v2-batch: closes lines"       '[.issues[].number | "Closes #\(.)"] | join("\n")' "$(printf 'Closes #4\nCloses #12\nCloses #20')"
 
+# --- v2 hitl-declined (HITL gate: operator chose No, skip Copilot review) ---
+F="$FIXTURE_DIR/v2-hitl-declined.json"
+check "$F" "hitl-declined: phase"              '.phase'                              "pr_open"
+check "$F" "hitl-declined: exit_reason"        '.review.copilot.exit_reason'         "hitl_declined"
+check "$F" "hitl-declined: hitl_decision"      '.review.copilot.hitl_decision'       "declined"
+check "$F" "hitl-declined: hitl_confirmed_at"  '.review.copilot.hitl_confirmed_at'   "null"
+check "$F" "hitl-declined: loops_run"          '.review.copilot.loops_run'           "0"
+check "$F" "hitl-declined: total_loops_run"    '.review.total_loops_run'             "0"
+check "$F" "hitl-declined: providers_completed empty" '.review.providers_completed | length' "0"
+# Contract invariant: exit_reason=hitl_declined IMPLIES hitl_decision=declined
+# (detects state-write inconsistency of the kind PR #38 found — the skip-path
+#  writer must keep these two fields in sync, forever)
+check "$F" "hitl-declined: contract invariant" '.review.copilot | select(.exit_reason == "hitl_declined") | .hitl_decision' "declined"
+
+# --- v2 hitl-confirmed-approved (HITL gate: operator chose Yes, loop ran to approval) ---
+F="$FIXTURE_DIR/v2-hitl-confirmed-approved.json"
+check "$F" "hitl-confirmed: phase"             '.phase'                              "pr_open"
+check "$F" "hitl-confirmed: exit_reason"       '.review.copilot.exit_reason'         "approved"
+check "$F" "hitl-confirmed: hitl_decision"     '.review.copilot.hitl_decision'       "confirmed"
+check "$F" "hitl-confirmed: hitl_confirmed_at" '.review.copilot.hitl_confirmed_at | length > 0' "true"
+check "$F" "hitl-confirmed: loops_run"         '.review.copilot.loops_run'           "2"
+check "$F" "hitl-confirmed: providers_done"    '.review.providers_completed | contains(["copilot"])' "true"
+
+# --- v2 hitl-disabled-legacy-silent-no-op (gate off via config, legacy silent_no_op path) ---
+F="$FIXTURE_DIR/v2-hitl-disabled-legacy-silent-no-op.json"
+check "$F" "hitl-disabled: phase"             '.phase'                              "pr_open"
+check "$F" "hitl-disabled: exit_reason"       '.review.copilot.exit_reason'         "silent_no_op"
+check "$F" "hitl-disabled: hitl_decision"     '.review.copilot.hitl_decision'       "null"
+check "$F" "hitl-disabled: hitl_confirmed_at" '.review.copilot.hitl_confirmed_at'   "null"
+# v1/v2 compatibility: same fallback path as status.md all-mode footer
+check "$F" "hitl-disabled: v2-compat check"   '(.review.copilot.exit_reason // .copilot.exit_reason)' "silent_no_op"
+
 echo "---"
 echo "$PASS passed / $FAIL failed / $TOTAL total"
 [ "$FAIL" -eq 0 ] || exit 1
