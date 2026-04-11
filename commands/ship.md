@@ -553,11 +553,16 @@ Continue to step 13c.
   log, not a skip signal. Decline leaves hitl_confirmed_at=null, so /review re-prompts.
 -->
 
-Skip this sub-step entirely (and proceed to step 14 with `HITL_CONFIRMED=false`, `HITL_CONFIRMED_AT=null`) if any of the following hold:
+Skip this sub-step based on one of two cases:
+
+**Case A — gate not applicable**: skip with `HITL_CONFIRMED=null`, `HITL_DECISION=null`, `HITL_CONFIRMED_AT=null`. Step 14.g writes all three as `null` (or omits them). Applies when any of:
 
 1. `DRY_RUN` is set
 2. `REVIEW_PROVIDER` is not `copilot` or `both`
 3. `copilot.hitl_confirm_invocation` is `false` in the effective config (default `true`)
+
+**Case B — re-entry, prior confirmation exists**: skip the prompt **but carry forward the prior confirmation**. Read `review.copilot.hitl_confirmed_at` and `review.copilot.hitl_decision` from the existing state file and set the in-memory values accordingly: `HITL_DECISION=<prior hitl_decision>`, `HITL_CONFIRMED_AT=<prior hitl_confirmed_at>`. Step 14.g will then write the same values back, preserving the prior confirmation record. **Do NOT set HITL_CONFIRMED_AT=null here** — that would clobber the prior confirmation on the next state write and re-enable prompting on subsequent resumes (self-defeating the re-entry guard). Applies when:
+
 4. The existing state file already has `review.copilot.hitl_confirmed_at` set to a non-null value (re-entry guard — prevents a second prompt on `/gh-issue-driven:ship resume` after the operator already confirmed in a prior invocation)
 
 Otherwise, ask the operator via the **AskUserQuestion tool**. Construct the question text as follows (Layer B — Claude translates at runtime when `lang != "en"`):

@@ -165,7 +165,7 @@ On **decline**, write the full v2 `review` block per `ship.md` step 13c.d — in
 
 On **confirm**, set `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>` in-memory and let step 6 merge them into the normal state write at the end of the loop.
 
-On **re-entry** where `hitl_confirmed_at` is already set in prior state, skip the gate entirely (no prompt) and continue to step 5b.
+On **re-entry** where `hitl_confirmed_at` is already set in prior state, skip the prompt **but carry forward the prior confirmation**: read `review.copilot.hitl_confirmed_at` and `review.copilot.hitl_decision` from the existing state file and set the in-memory values accordingly so step 6's normal state writer preserves them. Do NOT write null/absent for these fields on re-entry — that would clobber the prior confirmation and re-enable prompting on the next invocation (self-defeating the re-entry guard). Then continue to step 5b.
 
 See `ship.md` step 13c for the DESIGN NOTES comment documenting re-entry semantics, state-write invariants, and the retry UX rationale.
 

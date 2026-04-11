@@ -67,7 +67,7 @@ check_enum() {
     for f in "${FILES[@]}"; do
       local base
       base="$(basename "$f")"
-      if grep -q "$v" "$f"; then
+      if grep -Fq -- "$v" "$f"; then
         printf "OK   %-22s %-24s in %s\n" "$enum_name" "$v" "$base"
         PASS=$((PASS + 1))
       else

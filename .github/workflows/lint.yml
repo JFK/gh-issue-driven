@@ -58,5 +58,5 @@ jobs:
       - name: Run state schema fixture tests
         run: bash tests/test_state_schema.sh
 
-      - name: Verify exit_reason enum stays in sync across config.md / ship.md / review.md
+      - name: Verify exit_reason and hitl_decision enums stay in sync across config.md / ship.md / review.md
         run: bash tests/enum-sync-check.sh
