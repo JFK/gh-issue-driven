@@ -132,7 +132,7 @@ When `DRAFT` is `true`, the PR is created with `--draft`. After the Copilot revi
 gh pr ready "$PR_NUMBER"
 ```
 
-If the loop exits for any other reason (`no_actionable_feedback`, `max_loops`, `tests_failed`, `silent_no_op`, `hitl_declined`), the PR stays as draft — the operator can manually promote it after reviewing the Copilot feedback (or re-invoke via `/gh-issue-driven:review` when ready, for the `hitl_declined` case).
+If the loop exits with `no_actionable_feedback`, `max_loops`, `tests_failed`, or `silent_no_op`, the PR stays as draft — the operator can manually promote it after reviewing the Copilot feedback (there IS feedback in these cases, the loop ran). If the loop exits with `hitl_declined`, the PR also stays as draft, but there is no Copilot feedback to review yet — the operator should re-invoke via `/gh-issue-driven:review` when they are ready to actually run the Copilot loop.
 
 ### 2a. Resume checkpoint
 
@@ -689,7 +689,10 @@ Read the JSON from the most recent poll. Identify:
 
 Each exit condition sets a specific `exit_reason` so `/gh-issue-driven:status` and post-mortem can distinguish them:
 
-1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. Since v0.3.0, this state only fires when step 14 actually ran, which means either (a) the operator confirmed Copilot invocation at step 13c, or (b) the HITL gate was bypassed via `copilot.hitl_confirm_invocation=false` — in both cases step 14 proceeded and Copilot still did not respond. It is now a genuine anomaly rather than a catch-all for unknown causes. Log a warning: `Copilot review did not respond after <N> polls — this is unusual. Check the PR state, verify Copilot is active, or rerun with /gh-issue-driven:review.`
+1. `NO_ACTIVITY_POLLS >= SILENT_NO_OP_THRESHOLD` AND `DETECTION_METHOD == "neither"` → break with `exit_reason="silent_no_op"`. Since v0.3.0, this state only fires when step 14 actually ran, which means either (a) the operator confirmed Copilot invocation at step 13c, or (b) the HITL gate was bypassed via `copilot.hitl_confirm_invocation=false` (or `DRY_RUN`, or non-interactive execution). **Branch the warning text on `hitl_decision` to give the operator the right actionable hint**:
+   - If `hitl_decision == "confirmed"` (the operator explicitly confirmed Copilot at step 13c and Copilot still did not respond), this is a genuine anomaly. Log: `Copilot review did not respond after <N> polls — this is unusual. The operator confirmed Copilot invocation but Copilot never appeared. Check the PR state, verify Copilot is active, or rerun with /gh-issue-driven:review.`
+   - If `hitl_decision` is `null` (HITL gate was bypassed — `hitl_confirm_invocation=false`, `DRY_RUN`, non-interactive), fall back to the legacy setup-oriented hint: `Copilot review did not respond after <N> polls. Run /gh-issue-driven:doctor to verify Mode A / Mode B setup, check the gh CLI version (2.88.0+ needed for Mode B), or enable Automatic Copilot code review at the repo level (Mode A).`
+   - In both cases, set `exit_reason="silent_no_op"` — the enum value does not branch, only the operator-facing hint text.
 2. `REVIEW_DECISION == APPROVED` → break with `exit_reason="approved"`.
 3. No new comments AND no `CHANGES_REQUESTED` review since `START_TS` → break with `exit_reason="no_actionable_feedback"`.
 4. Iteration counter equals `max_loops` → break with `exit_reason="max_loops"`.
