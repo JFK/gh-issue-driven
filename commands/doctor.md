@@ -197,9 +197,120 @@ Otherwise:
    ```
    Fail → `cannot write to ~/.claude/cache/gh-issue-driven`.
 
+#### Plugin Metadata Resolution Procedure
+
+This procedure is called by each plugin check (steps 7-10) to probe presence, read metadata, and verify origin. Run it in the same shell context as the calling step.
+
+**Inputs** (supplied by the calling step):
+- `PMRP_GLOB` — glob pattern relative to `~/.claude/plugins/cache/` that identifies the plugin's cache root (e.g. `claude-c-suite*`)
+- `PMRP_SKILL` — plugin skill name, used for display and as the lookup key in `doctor.expected_origins` (e.g. `claude-c-suite`)
+- `PMRP_OFFICIAL` — `true` if the plugin lives under `claude-plugins-official/`, otherwise `false`
+
+**Outputs** (read by the calling step to decide the emoji line):
+- `PLUGIN_FOUND` — `true`/`false`
+- `PLUGIN_ORIGIN_DISPLAY` — formatted string for the output line
+- `PLUGIN_ORIGIN_STATUS` — one of: `official`, `expected`, `unexpected`, `unchecked`, `no-metadata`, `corrupt`, `absent`
+- `PLUGIN_VERSION` — version string or `unknown`
+- `PMRP_REPO` — raw repository URL or empty string; left in scope for callers that emit verbose `origin=...` lines
+
+**Algorithm**:
+
+```bash
+set -euo pipefail
+
+# Step 1 — Find plugin root(s) in the cache.
+PMRP_ROOTS=$(ls -d ~/.claude/plugins/cache/${PMRP_GLOB} 2>/dev/null || true)
+if [ -z "$PMRP_ROOTS" ]; then
+  PLUGIN_FOUND=false
+  PLUGIN_ORIGIN_DISPLAY="(not installed)"
+  PLUGIN_ORIGIN_STATUS="absent"
+  PLUGIN_VERSION="none"
+  return  # caller emits ⚠️ missing line
+fi
+PLUGIN_FOUND=true
+
+# Step 2 — Locate plugin.json candidates under the root(s).
+PMRP_JSONS=$(find $PMRP_ROOTS -maxdepth 4 -name plugin.json \
+             -path '*/.claude-plugin/plugin.json' 2>/dev/null | sort)
+
+if [ -z "$PMRP_JSONS" ]; then
+  PLUGIN_ORIGIN_DISPLAY="installed (no plugin.json found)"
+  PLUGIN_ORIGIN_STATUS="no-metadata"
+  PLUGIN_VERSION="unknown"
+  return
+fi
+
+# Step 3 — Select the canonical plugin.json (latest version by lex sort).
+PMRP_JSON=$(echo "$PMRP_JSONS" | tail -1)
+
+# Step 4 — Parse the JSON. Surface parse errors without aborting.
+if ! jq empty "$PMRP_JSON" 2>/dev/null; then
+  PLUGIN_ORIGIN_DISPLAY="installed (plugin.json corrupt)"
+  PLUGIN_ORIGIN_STATUS="corrupt"
+  PLUGIN_VERSION="unknown"
+  return
+fi
+
+PMRP_REPO=$(jq -r '.repository // empty' "$PMRP_JSON")
+PMRP_VER=$(jq -r '.version // empty' "$PMRP_JSON")
+PLUGIN_VERSION="${PMRP_VER:-unknown}"
+
+# Step 5 — Classify origin.
+if [ "$PMRP_OFFICIAL" = "true" ]; then
+  PLUGIN_ORIGIN_DISPLAY="claude-plugins-official (official)"
+  PLUGIN_ORIGIN_STATUS="official"
+elif [ -z "$PMRP_REPO" ]; then
+  PLUGIN_ORIGIN_DISPLAY="installed (no repository field in plugin.json)"
+  PLUGIN_ORIGIN_STATUS="no-metadata"
+else
+  # Look up expected origin from effective config.
+  PMRP_EXPECTED=$(jq -r --arg k "$PMRP_SKILL" \
+    '.doctor.expected_origins[$k] // empty' <(merged-effective-config-json))
+
+  # Strip https:// for display.
+  PMRP_DISPLAY_URL=$(echo "$PMRP_REPO" | sed 's|^https://||')
+
+  if [ -z "$PMRP_EXPECTED" ]; then
+    PLUGIN_ORIGIN_DISPLAY="${PMRP_DISPLAY_URL}@v${PLUGIN_VERSION}"
+    PLUGIN_ORIGIN_STATUS="unchecked"
+  elif [ "$PMRP_REPO" = "$PMRP_EXPECTED" ]; then
+    PLUGIN_ORIGIN_DISPLAY="${PMRP_DISPLAY_URL}@v${PLUGIN_VERSION}"
+    PLUGIN_ORIGIN_STATUS="expected"
+  else
+    PMRP_EXP_DISPLAY=$(echo "$PMRP_EXPECTED" | sed 's|^https://||')
+    PLUGIN_ORIGIN_DISPLAY="origin mismatch: expected ${PMRP_EXP_DISPLAY}, got ${PMRP_DISPLAY_URL}@v${PLUGIN_VERSION}"
+    PLUGIN_ORIGIN_STATUS="unexpected"
+  fi
+fi
+```
+
+**Output line format** (caller emits after the procedure returns). Uses the same `✅ <name>` / `⚠️  <name>: <reason>` format as all other doctor checks (lines 35-38):
+
+| `PLUGIN_ORIGIN_STATUS` | Emoji | Line |
+|---|---|---|
+| `official`, `expected`, `unchecked` | `✅` | `✅ <PMRP_SKILL>: <PLUGIN_ORIGIN_DISPLAY>` |
+| `no-metadata`, `corrupt` | `⚠️` | `⚠️  <PMRP_SKILL>: <PLUGIN_ORIGIN_DISPLAY>` |
+| `unexpected` | `⚠️` | `⚠️  <PMRP_SKILL>: <PLUGIN_ORIGIN_DISPLAY>` |
+| `absent` | `⚠️` | `⚠️  <PMRP_SKILL>: <degradation message from calling step>` |
+
+When the `verbose` flag is set, also emit a machine-readable line **before** each emoji line:
+
+```
+PLUGIN_CHECK skill=<PMRP_SKILL> found=<true|false> status=<PLUGIN_ORIGIN_STATUS> version=<PLUGIN_VERSION> origin=<raw-repository-url-or-empty>
+```
+
+CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`.
+
+---
+
 7. **Reviewer plugin: `claude-c-suite`**
-   - Probe: search for any of `~/.claude/plugins/cache/claude-c-suite*` (glob), or attempt a no-op invocation of the Skill tool with `/claude-c-suite:ask` and detect "skill not found".
-   - Warn if missing → `gate1/gate2 will degrade to advisory-only`.
+   - Probe: glob `~/.claude/plugins/cache/claude-c-suite*`, or attempt a no-op invocation of the Skill tool with `/claude-c-suite:ask` and detect "skill not found".
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=claude-c-suite*`
+     - `PMRP_SKILL=claude-c-suite`
+     - `PMRP_OFFICIAL=false`
+   - If `PLUGIN_FOUND=false`: emit `⚠️  claude-c-suite: not installed — gate1/gate2 will degrade to advisory-only`.
+   - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
         try: /plugin marketplace add JFK/claude-c-suite-plugin
@@ -208,7 +319,12 @@ Otherwise:
 
 8. **Reviewer plugin: `claude-phd-panel`** (optional but recommended for v0.2 features)
    - Probe via plugin cache glob.
-   - Warn if missing — does not block v0.1.0 functionality.
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=claude-phd-panel*`
+     - `PMRP_SKILL=claude-phd-panel`
+     - `PMRP_OFFICIAL=false`
+   - If `PLUGIN_FOUND=false`: emit `⚠️  claude-phd-panel: not installed — does not block v0.1.0 functionality`.
+   - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
         try: /plugin marketplace add JFK/claude-phd-panel-plugin
@@ -216,8 +332,14 @@ Otherwise:
      ```
 
 9. **Memory plugin: `kagura-memory`**
-   - Probe: check if the `mcp__kagura-memory__recall` tool is callable, OR glob `~/.claude/plugins/cache/*kagura-memory*`.
-   - Warn if missing → `recall and session-start/summary will be skipped`.
+   - Probe: glob `~/.claude/plugins/cache/*kagura-memory*`, or check if the `mcp__kagura-memory__recall` tool is callable.
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=*kagura-memory*`
+     - `PMRP_SKILL=kagura-memory`
+     - `PMRP_OFFICIAL=false`
+   - If `PLUGIN_FOUND=false` via glob but the MCP tool is callable: emit `✅ kagura-memory: installed via MCP (cache path not found, origin not verified)`.
+   - If both miss: emit `⚠️  kagura-memory: not installed — recall and session-start/summary will be skipped`.
+   - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```
         try: /plugin marketplace add kagura-ai/memory-cloud
@@ -226,7 +348,12 @@ Otherwise:
 
 10. **Workflow plugin: `feature-dev`** (optional — enhances the implementation phase between `/start` and `/ship`)
    - Probe via plugin cache glob: `~/.claude/plugins/cache/claude-plugins-official/feature-dev*`.
-   - Warn if missing → `guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=claude-plugins-official/feature-dev*`
+     - `PMRP_SKILL=feature-dev`
+     - `PMRP_OFFICIAL=true`
+   - If `PLUGIN_FOUND=false`: emit `⚠️  feature-dev: not installed — guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
+   - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append:
      ```
         try: /plugin install feature-dev
