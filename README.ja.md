@@ -89,9 +89,10 @@ graph LR
 | `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft` |
 | `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
+| `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
-| `/gh-issue-driven:status [<branch>\|all]` | — | カレントブランチ(または全ブランチ)の state 表示 |
+| `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |
 
 ---
 

@@ -211,6 +211,12 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "auto_close_milestone": false
   },
   "dry_run_env_var": "GH_ISSUE_DRY_RUN",
+  "propose": {
+    "reviewer": "/claude-c-suite:ask",
+    "pm_skill": "/claude-c-suite:pm",
+    "dedup_max_results": 10,
+    "yellow_continue_requires_confirm": true
+  },
   "doctor": {
     "expected_origins": {
       "claude-c-suite":   "https://github.com/JFK/claude-c-suite-plugin",
