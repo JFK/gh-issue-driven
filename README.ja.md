@@ -12,15 +12,18 @@
 
 ```mermaid
 graph LR
-    I[Issue #N] --> S["/start<br/>Gate1 設計"]
+    P["/propose"] -.-> I[Issue #N]
+    I --> S["/start<br/>Gate1 設計"]
     S --> IMP["実装 + /simplify"]
     IMP --> SH["/ship<br/>Gate2 + Copilot"]
     SH --> T["/tag<br/>リリース儀式"]
     T --> R[GitHub Release]
 
+    P -.HITL.-> H0((立ち止まり))
     S -.HITL.-> H1((立ち止まり))
     SH -.HITL.-> H2((立ち止まり))
 
+    style H0 fill:#ffe4b5
     style H1 fill:#ffe4b5
     style H2 fill:#ffe4b5
     style I fill:#e6f3ff
@@ -103,7 +106,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 1. まず `/claude-c-suite:ask`（単一視点ルータ）を呼ぶ。軽量・高速で、専門1分野で済む issue に最適。
 2. `/ask` 応答内で最後に出現した `## Verdict:` 行のトークンが `decline` の場合、`/claude-c-suite:ceo` に昇格して3視点 synthesis を実行。（`decline` は同じ `## Verdict:` 行で使われる gate1 専用トークンであり、別チャネルではない。応答本文に "decline" や "escalate" という単語が出てきても、それはレビュアの推論の一部であり routing シグナルではない — 構造化された verdict 行のみがカウントされる。）
 3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析する。構造化行が canonical で last-wins、case は正規化、末尾の句読点は許容。キーワードヒューリスティックは構造化行が無い場合の **fallback のみ** で、warn ログを emit して soft-deprecation の追跡が可能。
-4. **green** → 続行 / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
+4. **green** → HITL 確認ゲート（ブランチ作成前にユーザー確認。`gate1.green_continue_requires_confirm` で設定可、デフォルト `true`） / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
 
 ### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + Copilot ループ)
 
@@ -115,7 +118,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 | `/claude-c-suite:qa-lead` | テスト網羅 | Advisory |
 | `/claude-c-suite:cto` | 技術負債 | Advisory |
 
-3つの advisor verdict が集約される：いずれか red → red、yellow → yellow、それ以外 green。verdict handling は gate1 と同じ (green → 続行 / yellow → 確認 / red → abort、`force` で override)。
+3つの advisor verdict が集約される：いずれか red → red、yellow → yellow、それ以外 green。verdict handling は gate1 と同じ (green → HITL 確認ゲートで PR 作成前にユーザー確認、`gate2.green_continue_requires_confirm` で設定可、デフォルト `true` / yellow → 確認 / red → abort、`force` で override)。
 
 #### Optional binary gate (default off)
 
@@ -271,7 +274,9 @@ skill が見つからない場合の degrade：
 | `memory.context_id` | `null` (auto-detect) | Kagura Memory の recall 用コンテキスト。`null` (repo ごとに auto-detect)、`owner/repo` をキーとした **dict** (例: `{"JFK/gh-issue-driven": "<uuid>", "*": "<uuid>"}` — `"*"` は wildcard fallback)、または legacy scalar (UUID / name) を受け付ける。初回 `/start` 時にそのリポジトリ用のコンテキストを選択/作成するプロンプトが出て、dict のそのリポジトリのキーに永続化される。詳細は `/gh-issue-driven:config show`。 |
 | `gate1.primary` | `/claude-c-suite:ask` | gate1 の最初のレビュア |
 | `gate1.fallback` | `/claude-c-suite:ceo` | decline 時のエスカレーション先 |
+| `gate1.green_continue_requires_confirm` | `true` | green verdict 時にブランチ作成前で HITL 確認。`false` でスキップ |
 | `gate2.binary_gate` | `null` (off) | optional な override 不可バイナリゲート。skill 名 (例: `/claude-c-suite:audit`) を設定すると有効化 |
+| `gate2.green_continue_requires_confirm` | `true` | green verdict 時に PR 作成前で HITL 確認。`false` でスキップ |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
 | `copilot.max_loops` | `5` | 最大ループ数 |
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
@@ -342,7 +347,7 @@ Copilot ループは設定なしで動作しますが、以下の2つのオプ�
 
 ## Limitations / 既知の制限事項
 
-`gh-issue-driven` は v0.1.0 以来 15 回以上のリリースで `JFK/gh-issue-driven` 自身の PR を ship してきました。v0.6.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
+`gh-issue-driven` は v0.1.0 以来 15 回以上のリリースで `JFK/gh-issue-driven` 自身の PR を ship してきました。v0.7.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
 
 - **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
 - **`/gh-issue-driven:doctor` が context_id の解決を validate しない** — `memory.context_id` は `/start` 時に解決されるが、`/doctor` ではまだ解決チェックが行われない。follow-up として追跡。

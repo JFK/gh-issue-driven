@@ -12,15 +12,18 @@
 
 ```mermaid
 graph LR
-    I[Issue #N] --> S["/start<br/>Gate 1: design"]
+    P["/propose"] -.-> I[Issue #N]
+    I --> S["/start<br/>Gate 1: design"]
     S --> IMP["implement<br/>+ /simplify"]
     IMP --> SH["/ship<br/>Gate 2 + Copilot"]
     SH --> T["/tag<br/>release ceremony"]
     T --> R[GitHub Release]
 
+    P -.HITL.-> H0((pause))
     S -.HITL.-> H1((pause))
     SH -.HITL.-> H2((pause))
 
+    style H0 fill:#ffe4b5
     style H1 fill:#ffe4b5
     style H2 fill:#ffe4b5
     style I fill:#e6f3ff
@@ -104,7 +107,7 @@ Runs **after** the issue is fetched and recall is done, **before** the branch is
 1. Invoke `/claude-c-suite:ask` first — a single-lens auto-router. Cheap, fast, perfect for issues that need only one expert perspective.
 2. If the last `## Verdict:` line's token is `decline`, escalate to `/claude-c-suite:ceo` for full 3-lens synthesis. (`decline` is an additional gate1-only token on the same `## Verdict:` line, not a separate channel — only the structured line counts. Free-form mentions of "decline" or "escalate" inside the analysis body are part of the reviewer's reasoning, not routing instructions.)
 3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
-4. **green** → continue. **yellow** → ask the user to confirm. **red** → abort unless `force`.
+4. **green** → HITL confirmation gate (asks the user to confirm before creating the branch; configurable via `gate1.green_continue_requires_confirm`, default `true`). **yellow** → ask the user to confirm. **red** → abort unless `force`.
 
 ### Phase 2 — `/gh-issue-driven:ship` (Gate 2: pre-PR review battery + Copilot loop)
 
@@ -116,7 +119,7 @@ Runs **after** the implementation, **before** the PR is created. By default, **3
 | `/claude-c-suite:qa-lead` | Test coverage | Advisory |
 | `/claude-c-suite:cto` | Tech debt | Advisory |
 
-The three advisor verdicts are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1 (green → continue, yellow → confirm, red → abort unless `force`).
+The three advisor verdicts are aggregated: any red → red, any yellow → yellow, otherwise green. Verdict handling matches gate1 (green → HITL confirmation gate before PR creation, configurable via `gate2.green_continue_requires_confirm`, default `true`; yellow → confirm; red → abort unless `force`).
 
 #### Optional binary gate (off by default)
 
@@ -273,7 +276,9 @@ Key options:
 | `memory.context_id` | `null` (auto-detect) | Kagura Memory context for recall. Accepts `null` (auto-detect per repo), a **dict** keyed by `owner/repo` (e.g. `{"JFK/gh-issue-driven": "<uuid>", "*": "<uuid>"}` — `"*"` is a wildcard fallback), or a legacy scalar UUID/name. On first `/start` in a repo, the user is prompted to select or create a context; the choice is persisted under the repo's key. See `/gh-issue-driven:config show` for the full semantics. |
 | `gate1.primary` | `/claude-c-suite:ask` | First reviewer in the gate1 cascade. |
 | `gate1.fallback` | `/claude-c-suite:ceo` | Used when primary declines. |
+| `gate1.green_continue_requires_confirm` | `true` | Pause for HITL confirmation on green gate1 verdict before branch creation. Set to `false` to continue silently. |
 | `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
+| `gate2.green_continue_requires_confirm` | `true` | Pause for HITL confirmation on green gate2 verdict before PR creation. Set to `false` to continue silently. |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
 | `copilot.max_loops` | `5` | Maximum review iterations. |
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |
@@ -369,7 +374,7 @@ For each:
 
 ## Limitations
 
-`gh-issue-driven` has been used to ship its own PRs against `JFK/gh-issue-driven` since v0.1.0 (15+ releases). The following known sharp edges exist as of v0.6.0. None lose data or corrupt state, but they affect the operator experience:
+`gh-issue-driven` has been used to ship its own PRs against `JFK/gh-issue-driven` since v0.1.0 (15+ releases). The following known sharp edges exist as of v0.7.0. None lose data or corrupt state, but they affect the operator experience:
 
 - **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
 - **`/gh-issue-driven:doctor` does not validate context_id resolution** — the configured `memory.context_id` is resolved at `/start` time, but `/doctor` does not yet check whether it resolves successfully. Tracked as a follow-up.
