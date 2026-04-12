@@ -281,6 +281,38 @@ Key options:
 | `copilot.max_wait_sec` | `900` | Max wait per loop iteration (15 min). |
 | `copilot.run_tests_after_edits` | `true` | Run local tests after applying Copilot suggestions. |
 
+### Optimizing the Copilot review loop
+
+The Copilot loop works out of the box, but two optional tuning steps can reduce review round-trips by ~50%:
+
+1. **Turn off "Review new pushes"** in your repo's code-review settings (`Settings → Code review → ☐ Review new pushes`). The plugin re-requests review via `gh pr edit --add-reviewer @copilot` after each fix commit — automatic re-reviews on every push cause duplicate rounds.
+
+2. **Add `.github/copilot-instructions.md`** to tell Copilot what matters in your project:
+
+   ```md
+   ## For pull request reviews
+
+   ### Priority
+   - Report only high-signal issues: correctness bugs, security vulnerabilities,
+     data loss risks, concurrency problems, performance regressions, broken tests.
+   - Skip pure style nits unless they mask a real bug.
+
+   ### Consolidation
+   - Group similar findings into one comment with all locations listed.
+   - If more than 5 issues found, report only the top 5 by severity.
+     Mention the count of lower-priority items in a summary line.
+
+   ### Project conventions
+   <!-- Add your project-specific conventions here, e.g.:
+   - This project uses Tailwind CSS. Do not suggest CSS modules.
+   - All user-facing strings must use next-intl.
+   -->
+   ```
+
+   Copilot reads the first 4,000 characters. See: [Customizing Copilot code review](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review)
+
+`/gh-issue-driven:doctor` will show an informational note if the file is missing.
+
 ---
 
 ## State files
