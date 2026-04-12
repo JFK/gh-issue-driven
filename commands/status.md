@@ -167,11 +167,10 @@ If `$ARGUMENTS == "proposals"`:
    <slug> | <phase> | review=<review.verdict> | dedup=<dedup.candidates length> | <created_at>
    ```
 
-   For proposals where `phase == "created"`, also show `issue=#<result.issue_number>`.
 3. Sort by `created_at` descending.
 4. Print a footer: `<count> saved proposal(s). Proposals are stored at ~/.claude/cache/gh-issue-driven/proposals/.`
 
-Note: proposals with `phase=created` are normally GC'd immediately after issue creation (see `propose.md` step 13), and dry-run proposals are never written to disk, so this mode typically shows only retained proposals (aborted, review_failed, create_failed).
+Note: successful proposals are not written to disk after issue creation (see `propose.md` step 13), and dry-run proposals are never written to disk, so this mode typically shows only retained proposals (aborted, review_failed, create_failed).
 
 ### 6. Hint footer
 
