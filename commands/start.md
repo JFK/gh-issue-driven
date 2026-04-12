@@ -671,7 +671,7 @@ Memory  <k> related contexts found  (top: "<top summary>" score <score>)
 
 ### 17. Print implementation guidance
 
-After the recap block, print an **implementation guidance** section. This step closes the perceived workflow gap between `/start` and `/ship` by surfacing actionable next steps at the moment the branch is ready.
+After the recap block, print an **implementation guidance** section. This prepares the material — gate1 key suggestions (17a), detected workflow skills (17b), the suggested workflow (17c) — that step 18 will reuse when offering the operator a one-tap continue path.
 
 #### 17a. Extract gate1 key suggestions
 
