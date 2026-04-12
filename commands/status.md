@@ -2,7 +2,7 @@
 description: Show gh-issue-driven state for the current branch — phase, gate verdicts, PR status, Copilot loop count. Read-only.
 arguments:
   - name: branch
-    description: "Optional: branch name to inspect. Defaults to the current branch. Pass 'all' to list every cached state file as a one-line table."
+    description: "Optional: branch name to inspect. Defaults to the current branch. Pass 'all' to list every cached state file as a one-line table. Pass 'proposals' to list retained proposal state files under ~/.claude/cache/gh-issue-driven/proposals/."
     required: false
 ---
 
