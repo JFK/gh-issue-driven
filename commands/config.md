@@ -79,7 +79,7 @@ When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before en
 
 ### `doctor.expected_origins`
 
-Object mapping plugin skill names to their expected canonical HTTPS repository URLs. When set, `doctor` reads each installed plugin's `plugin.json` from the cache and compares its `repository` field against the configured value. A mismatch emits a `⚠️ WARN origin mismatch` line — a supply-chain hygiene check that catches a plugin being silently replaced by a fork or a same-name impersonator.
+Object mapping plugin skill names to their expected canonical HTTPS repository URLs. When set, `doctor` reads each installed plugin's `plugin.json` from the cache and compares its `repository` field against the configured value. A mismatch emits a `⚠️  <skill>: origin mismatch: ...` line — a supply-chain hygiene check that catches a plugin being silently replaced by a fork or a same-name impersonator.
 
 **Default** maps the four plugins gh-issue-driven depends on to their canonical origins:
 

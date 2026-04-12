@@ -211,6 +211,7 @@ This procedure is called by each plugin check (steps 7-10) to probe presence, re
 - `PLUGIN_ORIGIN_DISPLAY` — formatted string for the output line
 - `PLUGIN_ORIGIN_STATUS` — one of: `official`, `expected`, `unexpected`, `unchecked`, `no-metadata`, `corrupt`, `absent`
 - `PLUGIN_VERSION` — version string or `unknown`
+- `PMRP_REPO` — raw repository URL or empty string; left in scope for callers that emit verbose `origin=...` lines
 
 **Algorithm**:
 
