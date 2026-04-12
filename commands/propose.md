@@ -55,8 +55,11 @@ Set booleans:
 
 `INPUT_TEXT` must be non-empty after stripping flags. Abort if empty: `error: no description provided — pass the issue description as free text`.
 
-If `INPUT_TEXT` exceeds 4000 characters, truncate to 4000 and log a warning. This is for state-file storage; the full text is used in-session.
+Preserve `INPUT_TEXT` exactly as provided for all in-session use.
 
+If `INPUT_TEXT` exceeds 4000 characters, log a warning and set `INPUT_TEXT_FOR_STATE` to the first 4000 characters. Otherwise set `INPUT_TEXT_FOR_STATE=$INPUT_TEXT`.
+
+Use `INPUT_TEXT` for drafting and for `PROPOSAL_CONTEXT.free_text`. Use `INPUT_TEXT_FOR_STATE` only when serializing to the state file. This preserves the full text in-session while keeping persisted state bounded.
 ### 2. Load configuration
 
 Read `~/.claude/gh-issue-driven-config.json` if it exists. If absent or unparseable, log a single warning line and use the built-in defaults. Deep-merge user values over defaults.
