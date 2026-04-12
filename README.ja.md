@@ -279,6 +279,38 @@ skill が見つからない場合の degrade：
 | `copilot.max_wait_sec` | `900` | 1ループあたりの最大待機時間 |
 | `copilot.run_tests_after_edits` | `true` | Copilot 修正後にローカルテスト実行 |
 
+### Copilot レビューループの最適化
+
+Copilot ループは設定なしで動作しますが、以下の2つのオプション設定でレビューの往復を約50%削減できます:
+
+1. **「Review new pushes」をオフにする** — リポの code-review 設定（`Settings → Code review → ☐ Review new pushes`）で無効化。プラグインは各修正コミット後に `gh pr edit --add-reviewer @copilot` で手動レビュー再依頼するため、push ごとの自動再レビューは重複ラウンドの原因になります。
+
+2. **`.github/copilot-instructions.md` を追加** — プロジェクト固有の指示で Copilot のレビュー品質を向上:
+
+   ```md
+   ## For pull request reviews
+
+   ### Priority
+   - Report only high-signal issues: correctness bugs, security vulnerabilities,
+     data loss risks, concurrency problems, performance regressions, broken tests.
+   - Skip pure style nits unless they mask a real bug.
+
+   ### Consolidation
+   - Group similar findings into one comment with all locations listed.
+   - If more than 5 issues found, report only the top 5 by severity.
+     Mention the count of lower-priority items in a summary line.
+
+   ### Project conventions
+   <!-- プロジェクト固有の規約をここに追記してください。例:
+   - This project uses Tailwind CSS. Do not suggest CSS modules.
+   - All user-facing strings must use next-intl.
+   -->
+   ```
+
+   Copilot は先頭 4,000 文字を読み取ります。詳細: [Copilot code review のカスタマイズ](https://docs.github.com/ja/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review)
+
+`/gh-issue-driven:doctor` はこのファイルが存在しない場合に informational として表示します。
+
 ---
 
 ## State ファイル
