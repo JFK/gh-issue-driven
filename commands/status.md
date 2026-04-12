@@ -2,7 +2,7 @@
 description: Show gh-issue-driven state for the current branch — phase, gate verdicts, PR status, Copilot loop count. Read-only.
 arguments:
   - name: branch
-    description: "Optional: branch name to inspect. Defaults to the current branch. Pass 'all' to list every cached state file as a one-line table."
+    description: "Optional: branch name to inspect. Defaults to the current branch. Pass 'all' to list every cached state file as a one-line table. Pass 'proposals' to list retained proposal state files under ~/.claude/cache/gh-issue-driven/proposals/."
     required: false
 ---
 
@@ -28,6 +28,7 @@ What stays English regardless of `lang`:
 
 - If `$ARGUMENTS` is empty: use `git rev-parse --abbrev-ref HEAD`.
 - If `$ARGUMENTS == "all"`: skip to the "all" mode below.
+- If `$ARGUMENTS == "proposals"`: skip to the "proposals" mode below.
 - Otherwise: use `$ARGUMENTS` as the branch name verbatim.
 
 ### 2. Locate the state file
@@ -155,7 +156,23 @@ If `$ARGUMENTS == "all"`:
    `Hint: <N> branch(es) hit Copilot silent_no_op — run /gh-issue-driven:doctor to verify Mode A or upgrade gh.`
    The v1/v2 compatible path (`review.copilot.exit_reason` first, fall back to legacy `copilot.exit_reason`) mirrors the single-branch reader logic above — without this, v2 state files never trigger the hint.
 
-### 5. Hint footer
+### 5. Mode `proposals`
+
+If `$ARGUMENTS == "proposals"`:
+
+1. Glob `~/.claude/cache/gh-issue-driven/proposals/*.json`. If the directory does not exist or contains no JSON files, print `no proposals found` and exit.
+2. For each file, parse the JSON. Print one row:
+
+   ```
+   <slug> | <phase> | review=<review.verdict> | dedup=<dedup.candidates length> | <created_at>
+   ```
+
+3. Sort by `created_at` descending.
+4. Print a footer: `<count> saved proposal(s). Proposals are stored at ~/.claude/cache/gh-issue-driven/proposals/.`
+
+Note: successful proposals are not written to disk after issue creation (see `propose.md` step 13), and dry-run proposals are never written to disk, so this mode typically shows only retained proposals (aborted, review_failed, create_failed).
+
+### 6. Hint footer
 
 After the per-branch output, print:
 

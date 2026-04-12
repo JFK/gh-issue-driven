@@ -90,9 +90,10 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 | `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, HITL gate, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`. |
 | `/gh-issue-driven:review [flags]` | 2 | Re-run the post-PR review loop on an already-open PR (Copilot, `/code-review`, or both). Re-entrant by design. Flags: `dry-run`, `force`. |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | Release ceremony: compose release notes, bump manifests, update `CHANGELOG.md`, commit, annotated-tag, push, create GitHub Release. Flags: `dry-run`, `force`, `--notes-file=<path>`. |
+| `/gh-issue-driven:propose <description> [flags]` | 0 | Draft and file a new issue: dedup check, quality review, PM enrichment, HITL confirmation. Flags: `dry-run`, `force`. |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | Read-only environment health check. |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | Show effective config or stamp a fresh template. |
-| `/gh-issue-driven:status [<branch>\|all]` | — | Show gh-issue-driven state for a branch (or all branches). |
+| `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | Show gh-issue-driven state for a branch (or all branches, or saved proposals). |
 
 ---
 
