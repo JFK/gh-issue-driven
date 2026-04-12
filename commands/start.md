@@ -579,7 +579,9 @@ Considerations:
 
 When extracting advice, use the same heuristic as step 17a: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT`. Extract up to **3** of the most concrete items. If nothing extractable, set `GATE1_KEY_SUGGESTIONS` to an empty list and omit the advice bullets (do not invent guidance).
 
-Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–3 plain-text strings (no bullet prefixes, no formatting). Step 17a reuses this list directly: an empty list means "no suggestions" (omit the checklist entirely).
+Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–3 plain-text strings (no bullet prefixes, no formatting). This list is a durable internal artifact and must be stored in **English only**. If the extracted text from `GATE1_OUTPUT` is not already English, translate each item into concise English before storing. Step 17a reuses this list directly in its stored English form: an empty list means "no suggestions" (omit the checklist entirely).
+
+When `lang != "en"`, localize only the **rendered operator-facing** text: produce the Considerations block, the question text, and all option labels in the language specified by `lang`. If showing advice bullets from `GATE1_KEY_SUGGESTIONS`, translate them for display at render time, but do **not** overwrite or re-store `GATE1_KEY_SUGGESTIONS` in that language.
 
 When `lang != "en"`, produce the Considerations block, the question text, and all option labels in the language specified by `lang`.
 
@@ -587,7 +589,7 @@ Invoke `AskUserQuestion`:
 
 - **Question**: `Gate1 is green. Continue with branch creation?`
 - **Option 1 — "Yes, continue"**: continue to step 13.
-- **Option 2 — "No, abort"**: save state with `phase=started, gate1.verdict=green` (no branch created) and exit cleanly.
+- **Option 2 — "No, abort"**: immediately write a **partial state file** at the normal state-file path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`), using the same atomic temp+mv procedure defined in step 14, with at least `phase=started` and `gate1.verdict=green`, and explicitly record that no branch was created. After that write succeeds, exit cleanly.
 - **Option 3 — "I have feedback"**: print a one-line acknowledgement inviting the operator to type their note (`Got it — what's on your mind?`). Wait for the operator's next message. Respond to it conversationally — do not auto-launch any skill. After responding, re-present the same AskUserQuestion (options 1-3) so the operator makes an explicit Yes/No choice. Do NOT auto-continue to step 13 based on the model's judgment of whether the feedback was "minor" — the operator always gets the final say.
 
 This step also runs when `DRY_RUN` is `true` — the operator still sees the gate1 summary and confirms intent, even though step 13 (branch creation) will be skipped.
