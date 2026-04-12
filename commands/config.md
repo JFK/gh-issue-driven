@@ -77,6 +77,27 @@ When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before en
 
 **Set to `false`** to restore the pre-v0.3.0 behavior exactly (no prompt, no `hitl_*` fields in state). Useful for CI or non-interactive environments where the operator cannot respond to AskUserQuestion.
 
+### `doctor.expected_origins`
+
+Object mapping plugin skill names to their expected canonical HTTPS repository URLs. When set, `doctor` reads each installed plugin's `plugin.json` from the cache and compares its `repository` field against the configured value. A mismatch emits a `⚠️ WARN origin mismatch` line — a supply-chain hygiene check that catches a plugin being silently replaced by a fork or a same-name impersonator.
+
+**Default** maps the four plugins gh-issue-driven depends on to their canonical origins:
+
+```json
+{
+  "claude-c-suite":   "https://github.com/JFK/claude-c-suite-plugin",
+  "claude-phd-panel": "https://github.com/JFK/claude-phd-panel-plugin",
+  "kagura-memory":    "https://github.com/kagura-ai/memory-cloud",
+  "feature-dev":      null
+}
+```
+
+Set a key to `null` to skip the origin check for that plugin (any origin is accepted). `feature-dev` defaults to `null` because official Anthropic plugins carry no `repository` field in their `plugin.json`.
+
+To trust a fork, change the URL: `"claude-c-suite": "https://github.com/yourfork/claude-c-suite-plugin"`. Comparison is case-sensitive exact string match — write the URL exactly as it appears in the plugin's own `plugin.json` (no trailing slash, HTTPS, no `.git` suffix).
+
+**CI use**: run `doctor verbose` and `grep '^PLUGIN_CHECK'` to parse machine-readable `key=value` lines. Fail on `status=unexpected` to enforce origin pinning in CI.
+
 ### `memory.context_id`
 
 Accepts three forms — in priority order of recommendation:
@@ -189,7 +210,15 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "default_group": "Other",
     "auto_close_milestone": false
   },
-  "dry_run_env_var": "GH_ISSUE_DRY_RUN"
+  "dry_run_env_var": "GH_ISSUE_DRY_RUN",
+  "doctor": {
+    "expected_origins": {
+      "claude-c-suite":   "https://github.com/JFK/claude-c-suite-plugin",
+      "claude-phd-panel": "https://github.com/JFK/claude-phd-panel-plugin",
+      "kagura-memory":    "https://github.com/kagura-ai/memory-cloud",
+      "feature-dev":      null
+    }
+  }
 }
 ```
 
