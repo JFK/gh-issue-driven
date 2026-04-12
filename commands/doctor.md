@@ -405,7 +405,7 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
     ```bash
     test -f .github/copilot-instructions.md
     ```
-    - Present → `ℹ️  copilot-instructions: .github/copilot-instructions.md found`
+    - Present → `✅ copilot-instructions: .github/copilot-instructions.md found`
     - Absent → `ℹ️  copilot-instructions: .github/copilot-instructions.md not found — Copilot review quality improves with project-specific instructions. See: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review`
 
     This is informational only — never `⚠️` or `❌`. The file is optional but recommended for repos that use the Copilot review loop (`/gh-issue-driven:ship` step 14).
