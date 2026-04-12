@@ -713,7 +713,79 @@ Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Im
 
 When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/simplify`, `/ship`) stay as-is (they are command identifiers, not prose).
 
-Stop here. Do not proceed further. The user will implement the change manually and then invoke `/gh-issue-driven:ship`.
+### 18. HITL: choose next action
+
+After printing the recap and implementation guidance, give the operator an explicit choice instead of silently returning to the prompt. This closes the perceived "why did it just stop?" gap while keeping the phase boundary intact — the operator stays in control, but a one-tap path forward is offered.
+
+#### 18a. Skip conditions
+
+Skip step 18 entirely (return to prompt immediately) when **any** of the following hold:
+
+- `DRY_RUN` is true — no branch was created, there is nothing to continue into.
+- `GATE1_VERDICT` is `red` — already aborted in step 12, never reaches here.
+- `GATE1_VERDICT` is `yellow` AND the operator answered "No, abort" in step 12 — already exited.
+
+If `GATE1_VERDICT` is `unknown` (reviewer skills missing), step 18 still fires — the operator may still want to launch `/feature-dev` or get an implementation plan.
+
+#### 18b. Pick the "continue" target
+
+Determine what the **continue** option will actually do, based on skill detection from step 17b and on `IS_BATCH`:
+
+- If `IS_BATCH` is true → continue target is **"draft a per-issue implementation plan in this conversation"**. Do **not** auto-launch `/feature-dev` for batch mode (it is single-feature oriented).
+- Else if `/feature-dev:feature-dev` was detected in step 17b → continue target is **"invoke `/feature-dev:feature-dev` via the Skill tool"**.
+- Else → continue target is **"draft an implementation plan in this conversation, grounded in the issue body and gate1 suggestions"**.
+
+Record this as `CONTINUE_TARGET_LABEL` (a short human-readable string for the AskUserQuestion option label) and `CONTINUE_TARGET_ACTION` (the actual follow-up action).
+
+#### 18c. Print decision considerations
+
+Just before invoking AskUserQuestion, print a short **Considerations** block so the operator has the key context for the decision in front of them — they should not have to scroll back through the recap and gate1 suggestions to choose. Keep it tight (≤ 6 bullets total). Compose it from material already gathered in earlier steps; do **not** invent new analysis here.
+
+Include only the bullets that apply:
+
+- **Gate1 verdict**: re-state `GATE1_VERDICT` plus the reviewer route (e.g. `green via /ask` or `yellow via /ask, escalated to /ceo`). If `unknown`, say so explicitly and note that no design review actually ran.
+- **Top gate1 suggestions**: re-list the (up to 3) key suggestions extracted in step 17a, in the same order. If 17a produced none, omit this bullet — do not fabricate.
+- **Scope shape**: if `IS_BATCH` is true, state how many issues are bundled and remind the operator that option 2 will draft per-issue plans (not auto-launch `/feature-dev`). If single-issue, omit.
+- **Skills available for the continue path**: state which of `/feature-dev:feature-dev` and `/simplify` were detected in step 17b. If `/feature-dev` is missing, name what option 2 will fall back to (`Draft an implementation plan now`).
+- **Memory recall signal**: if step 7 produced ≥ 1 related context, include a one-line pointer (`<k> related contexts recalled — see recap above`). If none or skipped, omit.
+- **Caveats**: anything actionable the operator should weigh — e.g. yellow verdict carried forward, `force` flag in effect, branch was auto-suffixed because the original name collided. Omit if none.
+
+Format as a fenced block titled `Considerations:` directly above the AskUserQuestion call, e.g.:
+
+```
+Considerations:
+  - Gate1: green (via /ask)
+  - Top gate1 suggestions:
+      • <suggestion 1>
+      • <suggestion 2>
+  - Skills available: /feature-dev:feature-dev, /simplify
+  - Memory: 3 related contexts recalled — see recap above
+```
+
+When `lang != "en"`, produce the Considerations block in the language specified by `lang` (skill names stay as-is).
+
+#### 18d. Ask the operator
+
+Invoke the AskUserQuestion tool with this question and these three options. The question wording mirrors the yellow-confirm pattern in step 12 for consistency.
+
+- **Question**: `Gate1 is <verdict>. How would you like to proceed with implementation?`
+- **Option 1 — "Stop here"**: return to the prompt. The operator will drive implementation manually and invoke `/gh-issue-driven:ship` when ready. This is the current (pre-step-18) behavior and remains the safe default.
+- **Option 2 — "<CONTINUE_TARGET_LABEL>"**: proceed automatically with `CONTINUE_TARGET_ACTION`. The label should be concrete, e.g. `Launch /feature-dev:feature-dev now` or `Draft an implementation plan now`.
+- **Option 3 — "I have feedback / different direction" (free-form)**: the operator types a short note about scope changes, concerns, or alternative directions. Treat the response as the operator's next user message and react to it conversationally — do **not** auto-launch any skill. This option exists so the operator can pivot without first having to escape `/start` and retype context.
+
+The AskUserQuestion tool natively supports an "Other" / free-form path for option 3; use that mechanism rather than inventing a separate prompt.
+
+#### 18e. Handle the response
+
+- **Stop here** → print a one-line acknowledgement (`OK — returning to prompt. Run /gh-issue-driven:ship when implementation is ready.`) and stop. Equivalent to the legacy behavior.
+- **Continue (option 2)** → print a one-line acknowledgement naming the action, then immediately perform `CONTINUE_TARGET_ACTION`. For the `/feature-dev` case this means invoking the Skill tool with `skill: "feature-dev:feature-dev"`. For the "draft a plan" case, begin a normal conversational turn that summarizes the issue, lists the gate1 key suggestions extracted in step 17a, and proposes a concrete implementation outline grounded in files you have read or will read.
+- **Free-form feedback (option 3)** → print a one-line acknowledgement (`Got it — let's talk about that.`), then respond to the operator's note conversationally. Do not invoke any skill. Do not assume the feedback overrides gate1 — if it implies a design change large enough to invalidate gate1, say so explicitly and suggest re-running `/gh-issue-driven:start` once the new direction is settled.
+
+After step 18 completes (regardless of which branch), `/start` is done. The state file written in step 14 is the source of truth for `/ship` and `/status`; step 18's choice is **not** persisted (it only affects the in-conversation flow).
+
+#### 18f. Respect `lang` setting
+
+When `lang != "en"`, produce the AskUserQuestion question text, all three option labels, and the acknowledgement lines in the language specified by `lang`. Skill names (`/feature-dev`, `/simplify`, `/ship`) remain as-is.
 
 ## Failure modes
 
