@@ -347,18 +347,18 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
      ```
 
 10. **Workflow plugin: `feature-dev`** (optional — enhances the implementation phase between `/start` and `/ship`)
-    - Probe via plugin cache glob: `~/.claude/plugins/cache/claude-plugins-official/feature-dev*`.
-    - Run the Plugin Metadata Resolution Procedure with:
-      - `PMRP_GLOB=claude-plugins-official/feature-dev*`
-      - `PMRP_SKILL=feature-dev`
-      - `PMRP_OFFICIAL=true`
-    - If `PLUGIN_FOUND=false`: emit `⚠️  feature-dev: not installed — guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
-    - Otherwise: emit the status line per the procedure's output format.
-    - When `fix` flag is set AND missing, append:
-      ```
-         try: /plugin install feature-dev
-      ```
-      (Available from the Claude Code official marketplace — no marketplace add needed.)
+   - Probe via plugin cache glob: `~/.claude/plugins/cache/claude-plugins-official/feature-dev*`.
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=claude-plugins-official/feature-dev*`
+     - `PMRP_SKILL=feature-dev`
+     - `PMRP_OFFICIAL=true`
+   - If `PLUGIN_FOUND=false`: emit `⚠️  feature-dev: not installed — guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
+   - Otherwise: emit the status line per the procedure's output format.
+   - When `fix` flag is set AND missing, append:
+     ```
+        try: /plugin install feature-dev
+     ```
+     (Available from the Claude Code official marketplace — no marketplace add needed.)
 
 > Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. The README's [Install section](../README.md#60-second-quickstart) is the canonical place where the marketplace-name-vs-repo-slug distinction is documented; this `try:` block intentionally mirrors that exact form. If the exact `<plugin>@<marketplace>` syntax differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
