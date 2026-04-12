@@ -340,7 +340,7 @@ Invoke `AskUserQuestion`:
 
 When `lang != "en"`, produce the question text and option labels in the language specified by `lang`.
 
-This step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped. This matches `start.md` step 18's behavior where the HITL fires regardless of dry-run.
+This step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped.
 
 ### 10. Persist gate2 state and markdown
 
