@@ -176,6 +176,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
       "/claude-c-suite:cto"
     ],
     "yellow_continue_requires_confirm": true,
+    "green_continue_requires_confirm": true,
     "run_tests_before_gate2": false
   },
   "review": {

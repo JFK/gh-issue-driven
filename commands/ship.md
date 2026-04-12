@@ -311,9 +311,36 @@ If `ADVISOR_OUTS` is empty (no advisors configured or all skills unavailable), s
 
 ### 9. Verdict handling
 
-- **green** → continue to step 10.
+- **green** → if `gate2.green_continue_requires_confirm` is `true` (default), proceed to step 9a (which prints the summary and asks the operator). If `false`, continue silently to step 10.
 - **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
 - **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
+
+#### 9a. HITL confirmation on green verdict
+
+This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`.
+
+Print a short `Considerations:` block showing the gate2 per-reviewer summary:
+
+```
+Considerations:
+  - Gate2: green
+  - <for each advisor in ADVISORS (config order):>
+      • <display_label>: <ADVISOR_VERDICTS[advisor]>
+  - <if AUDIT_VERDICT != "skipped": "audit: <AUDIT_VERDICT>">
+```
+
+When `lang != "en"`, produce the Considerations block in the language specified by `lang`.
+
+Invoke `AskUserQuestion`:
+
+- **Question**: `Gate2 is green. Proceed to PR creation?`
+- **Option 1 — "Yes, ship it"**: continue to step 10.
+- **Option 2 — "No, abort"**: save state with `phase=gated` and exit cleanly.
+- **Option 3 — "I have feedback"**: print a one-line acknowledgement inviting the operator to type their note (`Got it — what's on your mind?`). Wait for the operator's next message. Respond to it conversationally — do not auto-launch any skill. After responding, re-present the same AskUserQuestion (options 1-3) so the operator makes an explicit Yes/No choice. Do NOT auto-continue to step 10 based on the model's judgment of whether the feedback was "minor" — the operator always gets the final say.
+
+When `lang != "en"`, produce the question text and option labels in the language specified by `lang`.
+
+This step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped. This matches `start.md` step 18's behavior where the HITL fires regardless of dry-run.
 
 ### 10. Persist gate2 state and markdown
 
