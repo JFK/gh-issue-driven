@@ -6,9 +6,7 @@
 
 [English](README.md) | **日本語**
 
-> ⚠️ **Beta (v0.3.0)** — このプラグインは現在 dogfooding 中です。orchestrated flow は end-to-end で動作しています。いくつかの既知の sharp edge があります。本番リポジトリで使う前に下記の [Limitations / 既知の制限事項](#limitations--既知の制限事項) を確認してください。
-
-> **GitHub issue 駆動開発のための 3 フェーズオーケストレータ: 設計ゲート付き `start` → advisor + Copilot ゲート付き `ship` → リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、Kagura Memory 自動検出付き。**
+> **GitHub issue 駆動開発のフルライフサイクルワークフロー: セッションコンテキストからの `propose` → 設計ゲート付き `start` → advisor + Copilot ゲート付き `ship`（全フェーズ境界に HITL 確認）→ リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、per-repo Kagura Memory 自動検出付き。**
 
 `gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を 1 本の再現可能な 3 フェーズワークフローに変えます:
 
@@ -344,7 +342,7 @@ Copilot ループは設定なしで動作しますが、以下の2つのオプ�
 
 ## Limitations / 既知の制限事項
 
-`gh-issue-driven` は beta software (v0.2.x) です。orchestrated flow は real PR で end-to-end 動作しています (このプラグインは `JFK/gh-issue-driven` で自分自身の PR を ship した実績あり) が、v0.2.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
+`gh-issue-driven` は v0.1.0 以来 15 回以上のリリースで `JFK/gh-issue-driven` 自身の PR を ship してきました。v0.6.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
 
 - **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
 - **`/gh-issue-driven:doctor` が context_id の解決を validate しない** — `memory.context_id` は `/start` 時に解決されるが、`/doctor` ではまだ解決チェックが行われない。follow-up として追跡。

@@ -1,7 +1,7 @@
 {
   "name": "gh-issue-driven",
-  "version": "0.5.0",
-  "description": "Orchestrate a full GitHub-issue-driven dev workflow — propose issues from session context (phase 0), design review (gate1), branch (single or multi-issue batch), implement, pre-PR review battery (gate2), PR creation, pluggable post-PR reviewer (Copilot / /code-review) with HITL invocation gate for honest Copilot orchestration, release checklist as a dogfooding gate before tagging, and per-repo Kagura Memory context persistence with auto-detect setup.",
+  "version": "0.6.0",
+  "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship with HITL confirmation at every phase boundary, ceremony-automated tag — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
   "author": {
     "name": "Fumikazu Kiyota",
     "url": "https://github.com/JFK"

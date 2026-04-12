@@ -6,9 +6,7 @@
 
 **English** | [日本語](README.ja.md)
 
-> ⚠️ **Beta (v0.3.0)** — this plugin is in active dogfooding. The orchestrated flow works end-to-end on real PRs, but several known sharp edges exist; see [Limitations](#limitations) below before using on a production repo.
-
-> **Three-phase orchestrator for GitHub-issue-driven development: design-gated `start`, advisor + Copilot-gated `ship`, and ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and Kagura Memory auto-detect.**
+> **Full-lifecycle GitHub-issue-driven dev workflow: `propose` issues from session context, design-gated `start`, advisor + Copilot-gated `ship` with HITL confirmation at every phase boundary, ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.**
 
 `gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable three-phase workflow:
 
@@ -371,7 +369,7 @@ For each:
 
 ## Limitations
 
-`gh-issue-driven` is beta software (v0.2.x). The orchestrated flow works end-to-end on real PRs (the plugin has been used to ship its own PRs against `JFK/gh-issue-driven`), but the following known sharp edges exist as of v0.2.0. None lose data or corrupt state, but they affect the operator experience:
+`gh-issue-driven` has been used to ship its own PRs against `JFK/gh-issue-driven` since v0.1.0 (15+ releases). The following known sharp edges exist as of v0.6.0. None lose data or corrupt state, but they affect the operator experience:
 
 - **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
 - **`/gh-issue-driven:doctor` does not validate context_id resolution** — the configured `memory.context_id` is resolved at `/start` time, but `/doctor` does not yet check whether it resolves successfully. Tracked as a follow-up.
