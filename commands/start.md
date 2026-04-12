@@ -577,7 +577,9 @@ Considerations:
       • <suggestion 3>
 ```
 
-When extracting advice, use the same heuristic as step 17a: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT`. Extract up to **3** of the most concrete items. If nothing extractable, omit the advice bullets (do not invent guidance). Store the extracted items as `GATE1_KEY_SUGGESTIONS` so that step 17a can reuse them without re-scanning `GATE1_OUTPUT`.
+When extracting advice, use the same heuristic as step 17a: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT`. Extract up to **3** of the most concrete items. If nothing extractable, set `GATE1_KEY_SUGGESTIONS` to an empty list and omit the advice bullets (do not invent guidance).
+
+Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–3 plain-text strings (no bullet prefixes, no formatting). Step 17a reuses this list directly: an empty list means "no suggestions" (omit the checklist entirely).
 
 When `lang != "en"`, produce the Considerations block, the question text, and all option labels in the language specified by `lang`.
 

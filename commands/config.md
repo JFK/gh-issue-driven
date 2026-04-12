@@ -166,7 +166,8 @@ Users without kagura-memory installed can ignore this field — recall is skippe
   "gate1": {
     "primary": "/claude-c-suite:ask",
     "fallback": "/claude-c-suite:ceo",
-    "yellow_continue_requires_confirm": true
+    "yellow_continue_requires_confirm": true,
+    "green_continue_requires_confirm": true
   },
   "gate2": {
     "binary_gate": null,
