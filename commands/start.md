@@ -281,7 +281,8 @@ Built-in defaults (also see `/gh-issue-driven:config show`):
   "gate1": {
     "primary": "/claude-c-suite:ask",
     "fallback": "/claude-c-suite:ceo",
-    "yellow_continue_requires_confirm": true
+    "yellow_continue_requires_confirm": true,
+    "green_continue_requires_confirm": true
   }
 }
 ```
@@ -557,9 +558,41 @@ by the time `GATE1_OUTPUT` is set here, decline has already been escalated to `/
 
 ### 12. Verdict handling
 
-- **green** → continue to step 13.
+- **green** → if `gate1.green_continue_requires_confirm` is `true` (default), proceed to step 12a (which prints the gate1 summary and asks the operator). If `false`, continue silently to step 13.
 - **yellow** → print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
 - **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns".
+
+#### 12a. HITL confirmation on green verdict
+
+This sub-step runs only when `GATE1_VERDICT` is `green` AND `gate1.green_continue_requires_confirm` is `true`.
+
+Print a short `Considerations:` block showing the gate1 summary:
+
+```
+Considerations:
+  - Gate1: green (via /<GATE1_REVIEWER>[, escalated to /ceo])
+  - <if gate1 output contains actionable advice, up to 3 bullets extracted from GATE1_OUTPUT:>
+      • <suggestion 1>
+      • <suggestion 2>
+      • <suggestion 3>
+```
+
+When extracting advice, use the same heuristic as step 17a: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT`. Extract up to **3** of the most concrete items. If nothing extractable, set `GATE1_KEY_SUGGESTIONS` to an empty list and omit the advice bullets (do not invent guidance).
+
+Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–3 plain-text strings (no bullet prefixes, no formatting). This list is a durable internal artifact and must be stored in **English only**. If the extracted text from `GATE1_OUTPUT` is not already English, translate each item into concise English before storing. Step 17a reuses this list directly in its stored English form: an empty list means "no suggestions" (omit the checklist entirely).
+
+When `lang != "en"`, localize only the **rendered operator-facing** text: produce the Considerations block, the question text, and all option labels in the language specified by `lang`. If showing advice bullets from `GATE1_KEY_SUGGESTIONS`, translate them for display at render time, but do **not** overwrite or re-store `GATE1_KEY_SUGGESTIONS` in that language.
+
+When `lang != "en"`, produce the Considerations block, the question text, and all option labels in the language specified by `lang`.
+
+Invoke `AskUserQuestion`:
+
+- **Question**: `Gate1 is green. Continue with branch creation?`
+- **Option 1 — "Yes, continue"**: continue to step 13.
+- **Option 2 — "No, abort"**: immediately write a **partial state file** at the normal state-file path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`), using the same atomic temp+mv procedure defined in step 14, with at least `phase=started` and `gate1.verdict=green`, and explicitly record that no branch was created. After that write succeeds, exit cleanly.
+- **Option 3 — "I have feedback"**: print a one-line acknowledgement inviting the operator to type their note (`Got it — what's on your mind?`). Wait for the operator's next message. Respond to it conversationally — do not auto-launch any skill. After responding, re-present the same AskUserQuestion (options 1-3) so the operator makes an explicit Yes/No choice. Do NOT auto-continue to step 13 based on the model's judgment of whether the feedback was "minor" — the operator always gets the final say.
+
+This step also runs when `DRY_RUN` is `true` — the operator still sees the gate1 summary and confirms intent, even though step 13 (branch creation) will be skipped.
 
 ### 13. Create the feature branch
 
@@ -675,7 +708,9 @@ After the recap block, print an **implementation guidance** section. This prepar
 
 #### 17a. Extract gate1 key suggestions
 
-Scan `GATE1_OUTPUT` for actionable guidance: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case". Extract up to **3** of the most concrete items. If nothing extractable, omit the checklist entirely (do not invent guidance).
+If `GATE1_KEY_SUGGESTIONS` was already set by step 12a (i.e., `gate1.green_continue_requires_confirm` was `true` and the green path ran through step 12a), reuse it directly — do not re-scan `GATE1_OUTPUT`.
+
+Otherwise (step 12a was skipped because the config option is `false`, or the verdict was not green), scan `GATE1_OUTPUT` for actionable guidance: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case". Extract up to **3** of the most concrete items and store as `GATE1_KEY_SUGGESTIONS`. If nothing extractable, omit the checklist entirely (do not invent guidance).
 
 Format the extracted items as an indented bullet list:
 
@@ -724,6 +759,7 @@ Skip step 18 entirely (return to prompt immediately) when **any** of the followi
 - `DRY_RUN` is true — no branch was created, there is nothing to continue into.
 - `GATE1_VERDICT` is `red` AND `FORCE` is not true — already aborted in step 12, never reaches here.
 - `GATE1_VERDICT` is `yellow` AND the operator answered "No, abort" in step 12 — already exited.
+- `GATE1_VERDICT` is `green` AND the operator answered "No, abort" in step 12a — already exited.
 
 If `GATE1_VERDICT` is `unknown` (reviewer skills missing), step 18 still fires — the operator may still want to launch `/feature-dev` or get an implementation plan.
 
