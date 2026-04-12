@@ -10,7 +10,7 @@
     {
       "name": "gh-issue-driven",
       "source": "./",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "category": "developer-experience"
     }
   ]
