@@ -722,7 +722,7 @@ After printing the recap and implementation guidance, give the operator an expli
 Skip step 18 entirely (return to prompt immediately) when **any** of the following hold:
 
 - `DRY_RUN` is true — no branch was created, there is nothing to continue into.
-- `GATE1_VERDICT` is `red` — already aborted in step 12, never reaches here.
+- `GATE1_VERDICT` is `red` AND `FORCE` is not true — already aborted in step 12, never reaches here.
 - `GATE1_VERDICT` is `yellow` AND the operator answered "No, abort" in step 12 — already exited.
 
 If `GATE1_VERDICT` is `unknown` (reviewer skills missing), step 18 still fires — the operator may still want to launch `/feature-dev` or get an implementation plan.
