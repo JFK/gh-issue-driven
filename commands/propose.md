@@ -82,7 +82,7 @@ Build `PROPOSAL_CONTEXT`:
 }
 ```
 
-In v0.5.0 this step always produces `source=free_text`. The abstraction exists so that future `--from-session` and `--from-failure` flags can add new branches here without changing steps 4–14. All downstream steps read from `PROPOSAL_CONTEXT.free_text`, never from `INPUT_TEXT` directly.
+This step currently always produces `source=free_text`. The abstraction exists so that future `--from-session` and `--from-failure` flags can add new branches here without changing steps 4–14. All downstream steps read from `PROPOSAL_CONTEXT.free_text`, never from `INPUT_TEXT` directly.
 
 Derive:
 - `PROPOSAL_SLUG`: generate from `free_text` using these steps:
