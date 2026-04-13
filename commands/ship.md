@@ -48,6 +48,12 @@ If you encounter unexpected state, **stop and report** rather than "fixing" it.
 set -euo pipefail
 git rev-parse --is-inside-work-tree >/dev/null || { echo "not inside a git repo"; exit 2; }
 gh auth status >/dev/null 2>&1 || { echo "gh not authenticated"; exit 3; }
+DIRTY=$(git status --porcelain | wc -l)
+if [ "$DIRTY" -ne 0 ]; then
+  echo "uncommitted changes present — commit or stash before /gh-issue-driven:ship"
+  git status --short
+  exit 4
+fi
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
 if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
@@ -891,6 +897,7 @@ Stop. Do not continue running anything else.
 | `gate2.binary_gate` is configured AND the skill returns `fail` | HARD ABORT. Not even FORCE bypasses this. |
 | `gate2.binary_gate` is configured AND the skill is unavailable / errors out | Treat the binary gate as `unknown` (not pass) and require FORCE to continue. |
 | Advisor reviewer skill missing | Slot becomes `unknown`, gate2 degrades to whichever advisor skills did respond. |
+| Working tree dirty | Abort. List dirty files. Tell user to commit or stash. |
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
