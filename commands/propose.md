@@ -11,7 +11,7 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 14, AskUserQuestion text, dedup/review/enrichment narration, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 13, AskUserQuestion text, dedup/review/enrichment narration, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
 
 The following MUST stay English regardless of `lang`:
 
@@ -147,7 +147,7 @@ Found <DEDUP_COUNT> potential match(es):
 (or "No potential duplicates found.")
 ```
 
-If `DEDUP_COUNT > 0` and the dedup results look relevant, note them for the HITL step. The dedup check is **informational, not a hard gate** — the operator confirms intent in step 11 (HITL). However, print a one-line notice if duplicates were found: `Note: <DEDUP_COUNT> potential duplicate(s) found — review above before confirming.`
+If `DEDUP_COUNT > 0` and the dedup results look relevant, note them for the HITL step. The dedup check is **informational, not a hard gate** — the operator confirms intent in step 10 (HITL). However, print a one-line notice if duplicates were found: `Note: <DEDUP_COUNT> potential duplicate(s) found — review above before confirming.`
 
 If `gh issue list` fails, log a warning `dedup check failed — continuing without dedup results`, set `DEDUP_COUNT=0`, `DEDUP_CANDIDATES=[]`.
 
@@ -205,7 +205,7 @@ If `SECRETS_DETECTED` is non-empty:
     - ...
   These will be visible to anyone who can view the issue.
   ```
-- Do NOT abort — the operator may be writing *about* secrets conceptually (e.g. "add API key rotation"). The HITL gate in step 11 is the decision point.
+- Do NOT abort — the operator may be writing *about* secrets conceptually (e.g. "add API key rotation"). The HITL gate in step 10 is the decision point.
 - Do NOT strip the secrets automatically — the operator must decide.
 
 If `SECRETS_DETECTED` is empty, proceed silently.
@@ -369,18 +369,18 @@ Dedup     <DEDUP_COUNT> candidate(s) checked
 
 If `REVIEW_OUTPUT` is non-empty, write it verbatim to `REVIEW_MD`. Skip the write if `DRY_RUN` or if `REVIEW_OUTPUT` is empty (reviewer was skipped).
 
-### 10. Verdict handling
+### 10. Verdict handling and HITL confirmation
 
-- **green** → continue to step 11.
-- **yellow** AND `YELLOW_CONFIRM` is true (default) → continue to step 11 (the HITL gate handles confirmation; the review concerns are visible from step 9's output).
-- **yellow** AND `YELLOW_CONFIRM` is false → log a one-line note and continue.
-- **red** AND `FORCE` is true → log a loud warning `review returned red — proceeding because 'force' flag is set` and continue to step 11.
-- **red** AND `FORCE` is false → print the review findings in full. Write the state file with `phase=review_failed`. Print: `Review: red — issue is not ready to file. Address the reviewer's concerns and re-run /gh-issue-driven:propose, or pass 'force' to override.` Exit. Do NOT proceed to step 11.
-- **unknown** (reviewer not installed) → continue to step 11 with a one-line warning.
+Evaluate the review verdict and, for all non-aborting paths, present the HITL confirmation within this same step. This ensures the operator sees the confirmation prompt immediately after the verdict is evaluated, without an intermediate step header.
 
-### 11. HITL confirmation
+- **green** → continue to the HITL section below.
+- **yellow** AND `YELLOW_CONFIRM` is true (default) → continue to the HITL section below (the review concerns are visible from step 9's output).
+- **yellow** AND `YELLOW_CONFIRM` is false → log a one-line note and continue to the HITL section below.
+- **unknown** (reviewer not installed) → continue to the HITL section below with a one-line warning.
+- **red** AND `FORCE` is true → log a loud warning `review returned red — proceeding because 'force' flag is set` and continue to the HITL section below.
+- **red** AND `FORCE` is false → print the review findings in full. Write the state file with `phase=review_failed`. Print: `Review: red — issue is not ready to file. Address the reviewer's concerns and re-run /gh-issue-driven:propose, or pass 'force' to override.` Exit. Do NOT proceed to the HITL section below.
 
-#### 11a. Considerations block
+#### 10a. Considerations block
 
 Print a short `Considerations:` block directly before the AskUserQuestion call:
 
@@ -396,26 +396,26 @@ Considerations:
 
 When `lang != "en"`, produce the Considerations block in the language specified by `lang`.
 
-#### 11b. Ask the operator
+#### 10b. Ask the operator
 
 Invoke `AskUserQuestion`:
 
 - **Question**: `Create this issue in <REPO_FULL_NAME>?`
-- **Option 1 — "Yes, create it"**: proceed to step 12.
+- **Option 1 — "Yes, create it"**: proceed to step 11.
 - **Option 2 — "Edit and re-roll"**: the operator wants to refine the draft.
 - **Option 3 — "Abort"**: cancel the proposal.
 
 When `lang != "en"`, produce the question text and option labels in the language specified by `lang`.
 
-#### 11c. Handle the response
+#### 10c. Handle the response
 
-- **"Yes, create it"** → proceed to step 12.
+- **"Yes, create it"** → proceed to step 11.
 
-- **"Edit and re-roll"** → print a one-line acknowledgement inviting the operator to type their edit note: `Got it — what would you like to change?`. Wait for the operator's next message. Treat that message as an amendment: append it to `PROPOSAL_CONTEXT.free_text` as an addendum block (`\n\n--- Amendment ---\n<operator's note>`), then **re-run steps 6–10** (re-derive draft, re-run review, re-run enrichment, re-print, re-evaluate verdict). Do NOT re-run step 5 (dedup) — the topic hasn't changed fundamentally. After steps 6–10 complete, return to step 11 (present the HITL again with the updated draft). There is no maximum re-roll count.
+- **"Edit and re-roll"** → print a one-line acknowledgement inviting the operator to type their edit note: `Got it — what would you like to change?`. Wait for the operator's next message. Treat that message as an amendment: append it to `PROPOSAL_CONTEXT.free_text` as an addendum block (`\n\n--- Amendment ---\n<operator's note>`), then **re-run steps 6–9** (re-derive draft, re-run review, re-run enrichment, re-print). Do NOT re-run step 5 (dedup) — the topic hasn't changed fundamentally. After steps 6–9 complete, return to step 10 from the top — re-evaluate the new `REVIEW_VERDICT` through the full verdict dispatch (including the red-abort guard), then present the HITL with the updated draft if the verdict does not abort. There is no maximum re-roll count.
 
 - **"Abort"** → write the state file with `phase=aborted`. Print: `Proposal aborted. Draft preserved at <STATE_PATH>.` Exit cleanly.
 
-### 12. Create the issue
+### 11. Create the issue
 
 Skip if `DRY_RUN`. Print `[DRY RUN] Issue creation skipped — draft shown above.` Do not write any state file. Exit.
 
@@ -449,7 +449,7 @@ On success: print `Created: #<ISSUE_NUMBER> <ISSUE_URL>`
 
 On `gh issue create` failure: print the error verbatim. Write the state file with `phase=create_failed`. Print: `Draft preserved at <STATE_PATH>. Fix the issue and retry.` Exit.
 
-### 13. Persist or GC the state file
+### 12. Persist or GC the state file
 
 **On success** (`ISSUE_NUMBER` set, `DRY_RUN` false):
 
@@ -515,7 +515,7 @@ Path: `~/.claude/cache/gh-issue-driven/proposals/<timestamp>-<slug>.json`
 }
 ```
 
-### 14. Recap
+### 13. Recap
 
 ```
 [DRY RUN] (only if dry-run)
@@ -541,7 +541,7 @@ Next: /gh-issue-driven:start <ISSUE_NUMBER>
 | `gh issue list` search fails | Log warning, set `DEDUP_COUNT=0`, continue. |
 | Reviewer skill missing | Degrade: skip review, `REVIEW_VERDICT="unknown"`, continue. |
 | PM skill missing | Degrade: skip enrichment, leave suggestion fields empty, continue. |
-| Potential secret detected in draft | Warn loudly (step 6a). Surface in HITL considerations (step 11a). Operator decides — never auto-strip, never auto-abort. |
+| Potential secret detected in draft | Warn loudly (step 6a). Surface in HITL considerations (step 10a). Operator decides — never auto-strip, never auto-abort. |
 | Review verdict is `red` | Abort unless `force`. Print findings. Retain state file. |
 | HITL declines creation | Abort. Retain state file with draft. |
 | `gh issue create` fails | Print error verbatim. Retain state file. Suggest fixing and retrying. |

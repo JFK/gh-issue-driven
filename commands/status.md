@@ -170,7 +170,7 @@ If `$ARGUMENTS == "proposals"`:
 3. Sort by `created_at` descending.
 4. Print a footer: `<count> saved proposal(s). Proposals are stored at ~/.claude/cache/gh-issue-driven/proposals/.`
 
-Note: successful proposals are not written to disk after issue creation (see `propose.md` step 13), and dry-run proposals are never written to disk, so this mode typically shows only retained proposals (aborted, review_failed, create_failed).
+Note: successful proposals are not written to disk after issue creation (see `propose.md` step 12), and dry-run proposals are never written to disk, so this mode typically shows only retained proposals (aborted, review_failed, create_failed).
 
 ### 6. Hint footer
 

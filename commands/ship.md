@@ -48,6 +48,12 @@ If you encounter unexpected state, **stop and report** rather than "fixing" it.
 set -euo pipefail
 git rev-parse --is-inside-work-tree >/dev/null || { echo "not inside a git repo"; exit 2; }
 gh auth status >/dev/null 2>&1 || { echo "gh not authenticated"; exit 3; }
+DIRTY=$(git status --porcelain | wc -l)
+if [ "$DIRTY" -ne 0 ]; then
+  echo "uncommitted changes present — commit or stash before /gh-issue-driven:ship"
+  git status --short
+  exit 4
+fi
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
 if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
@@ -309,15 +315,9 @@ Compute `GATE2_VERDICT` from the collected verdicts:
 
 If `ADVISOR_OUTS` is empty (no advisors configured or all skills unavailable), set `GATE2_VERDICT = "unknown"` and require `FORCE` to continue.
 
-### 9. Verdict handling
+#### 8a. HITL confirmation on green verdict
 
-- **green** → if `gate2.green_continue_requires_confirm` is `true` (default), proceed to step 9a (which prints the summary and asks the operator). If `false`, continue silently to step 10.
-- **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
-- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
-
-#### 9a. HITL confirmation on green verdict
-
-This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`.
+This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is computed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
 
 Print a short `Considerations:` block showing the gate2 per-reviewer summary:
 
@@ -340,7 +340,13 @@ Invoke `AskUserQuestion`:
 
 When `lang != "en"`, produce the question text and option labels in the language specified by `lang`.
 
-This step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped.
+This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped.
+
+### 9. Verdict handling
+
+- **green** → continue silently to step 10. (HITL was presented in step 8a if `gate2.green_continue_requires_confirm` is `true`.)
+- **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
+- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
 
 ### 10. Persist gate2 state and markdown
 
@@ -891,6 +897,7 @@ Stop. Do not continue running anything else.
 | `gate2.binary_gate` is configured AND the skill returns `fail` | HARD ABORT. Not even FORCE bypasses this. |
 | `gate2.binary_gate` is configured AND the skill is unavailable / errors out | Treat the binary gate as `unknown` (not pass) and require FORCE to continue. |
 | Advisor reviewer skill missing | Slot becomes `unknown`, gate2 degrades to whichever advisor skills did respond. |
+| Working tree dirty | Abort. List dirty files. Tell user to commit or stash. |
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
