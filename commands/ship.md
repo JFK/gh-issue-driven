@@ -309,15 +309,9 @@ Compute `GATE2_VERDICT` from the collected verdicts:
 
 If `ADVISOR_OUTS` is empty (no advisors configured or all skills unavailable), set `GATE2_VERDICT = "unknown"` and require `FORCE` to continue.
 
-### 9. Verdict handling
+#### 8a. HITL confirmation on green verdict
 
-- **green** → if `gate2.green_continue_requires_confirm` is `true` (default), proceed to step 9a (which prints the summary and asks the operator). If `false`, continue silently to step 10.
-- **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
-- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
-
-#### 9a. HITL confirmation on green verdict
-
-This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`.
+This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is computed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
 
 Print a short `Considerations:` block showing the gate2 per-reviewer summary:
 
@@ -340,7 +334,13 @@ Invoke `AskUserQuestion`:
 
 When `lang != "en"`, produce the question text and option labels in the language specified by `lang`.
 
-This step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped.
+This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the gate2 summary and confirms intent, even though step 11 (push) and step 12 (PR creation) will be skipped.
+
+### 9. Verdict handling
+
+- **green** → continue silently to step 10. (HITL was presented in step 8a if `gate2.green_continue_requires_confirm` is `true`.)
+- **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
+- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
 
 ### 10. Persist gate2 state and markdown
 
