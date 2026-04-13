@@ -1,6 +1,6 @@
 {
   "name": "gh-issue-driven",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship with HITL confirmation at every phase boundary, ceremony-automated tag — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
   "author": {
     "name": "Fumikazu Kiyota",
