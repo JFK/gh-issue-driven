@@ -94,7 +94,7 @@ Allow-list (canonical definition for `start.md` — all downstream steps inherit
 | Each `ISSUE_NUM` in `ISSUE_NUMS` | `^[1-9][0-9]{0,8}$` | Positive integer, max 9 digits |
 | `OWNER` | `^[a-zA-Z0-9._-]{1,39}$` | Safe shell allow-list for the parsed owner token |
 | `REPO` | `^[a-zA-Z0-9._-]{1,100}$` | Safe shell allow-list for the parsed repo token |
-| `BRANCH_OVERRIDE` (if set) | `^[a-zA-Z0-9._/-]{1,100}$` | Safe shell allow-list for operator-provided branch name |
+| `BRANCH_OVERRIDE` (if set) | `^[a-zA-Z0-9._/-]{1,100}$` **+** `git check-ref-format --branch` | Safe shell allow-list **plus** git's own ref-name rules (no `..`, no leading `.`, no `@{`, etc.) so `--branch=../foo` — which the regex alone permits — cannot escape `$REPO_ROOT/.worktrees/` in step 13b |
 
 Validation (run in a single Bash block immediately after step 1 normalizes all identifiers, before any later bash interpolation):
 
@@ -112,6 +112,13 @@ done
 [[ "$REPO"  =~ ^[a-zA-Z0-9._-]{1,100}$ ]]     || { echo "error: invalid repo — '$REPO' does not match ^[a-zA-Z0-9._-]{1,100}$"; exit 10; }
 if [ -n "${BRANCH_OVERRIDE:-}" ]; then
   [[ "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9._/-]{1,100}$ ]] || { echo "error: invalid --branch value — '$BRANCH_OVERRIDE' does not match ^[a-zA-Z0-9._/-]{1,100}$"; exit 10; }
+  # git's own ref-name rules are stricter than the regex: no '..', no leading '.', no '@{', no
+  # trailing '/', etc. Running `git check-ref-format --branch` as a second gate rejects
+  # '--branch=../foo' (regex-permissive, path-traversal-unsafe) before it reaches step 13b's
+  # `WORKTREE_PATH="$REPO_ROOT/.worktrees/<branch>"` construction where a `..` segment would
+  # escape the gitignored `.worktrees/` root.
+  git check-ref-format --branch "$BRANCH_OVERRIDE" >/dev/null 2>&1 \
+    || { echo "error: '--branch=$BRANCH_OVERRIDE' fails git check-ref-format (e.g. contains '..', leading '.', '@{', or other forbidden ref-name chars)"; exit 10; }
 fi
 ```
 
@@ -774,7 +781,7 @@ Output exactly one block in this format:
 Issue   #<num> <title>
         <url>
 Branch  <branch>  (created from <default-branch>)
-<if WORKTREE=true:>
+<if WORKTREE=true AND NOT DRY_RUN:>
 Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
@@ -792,7 +799,7 @@ Issues  #<n1> <title1>
         #<n3> <title3>
         ...
 Branch  <branch>  (created from <default-branch>)
-<if WORKTREE=true:>
+<if WORKTREE=true AND NOT DRY_RUN:>
 Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
@@ -803,6 +810,8 @@ Memory  <k> related contexts found  (top: "<top summary>" score <score>)
 ```
 
 The `Worktree` line is printed verbatim from `WORKTREE_PATH` (set in step 13b). When `--worktree` is combined with `--branch=<override>`, `WORKTREE_PATH` already reflects the override (e.g. `.worktrees/<override>`), so the `cd` hint always matches reality. When `--worktree` is absent, both `WORKTREE_PATH` and this entire line block are omitted — the recap stays identical to the pre-`--worktree` output for non-worktree runs.
+
+**`DRY_RUN` + `--worktree` interaction**: step 13 (branch + worktree creation) is skipped when `DRY_RUN` is true, so `WORKTREE_PATH` is never assigned. The recap suppresses the `Worktree` block in that combined case — rendering the block would either claim a literal placeholder or invent a preview path the superpowers-delegation path would not necessarily pick. The `[DRY RUN]` banner plus the Branch line are enough to convey the preview intent; the operator re-runs without `dry-run` to get the actual worktree location.
 
 ### 17. Print implementation guidance
 
