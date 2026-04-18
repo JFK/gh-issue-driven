@@ -606,16 +606,17 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 Skip this step entirely if `DRY_RUN` is true.
 
-Each sub-path owns its own remote-refresh step. In 13a, `git pull` already performs the required fetch, so no shared pre-fetch is needed. Keeping the remote refresh inside each sub-path preserves the default-path flow when `--worktree` is absent without requiring a separate top-level fetch step — 13a's sequence `checkout → pull → checkout -b` is unchanged from the pre-`--worktree` version.
+Each sub-path owns its own remote-refresh step. In 13a, the sequence is `fetch → checkout → pull → checkout -b` — byte-for-byte identical to the pre-`--worktree` version of this step (the explicit `git fetch` is redundant with the fetch performed by `git pull --ff-only`, but it is preserved verbatim to honor the "no behavior change when `--worktree` is absent" guarantee, down to the network call sequence). 13b uses its own fetch before `git worktree add` so that the worktree is based off a fresh `origin/<DEFAULT_BRANCH>` without touching the current working tree.
 
 Branch on `WORKTREE`:
 
 #### 13a. In-place branch (default — `WORKTREE=false`)
 
-Move the current working tree to the default branch, fast-forward, and branch from there. `git pull --ff-only` does its own fetch — no separate `git fetch` needed.
+Move the current working tree to the default branch, fast-forward, and branch from there. The explicit `git fetch` before `checkout` preserves byte-for-byte parity with the pre-`--worktree` version of this step — `git pull --ff-only` already fetches internally, so the explicit `git fetch` is redundant in terms of refs updated, but keeping it here guarantees the `--worktree`-absent network-call sequence has not changed:
 
 ```bash
 DEFAULT_BRANCH=<from config>
+git fetch origin "$DEFAULT_BRANCH"
 git checkout "$DEFAULT_BRANCH"
 git pull --ff-only origin "$DEFAULT_BRANCH"
 git checkout -b <branch>
@@ -656,6 +657,8 @@ Then choose a path:
   > Set `WORKTREE_PATH=<path the skill used>`.
 
   The leading `/` on the skill name matches the repo's `Invoke the /plugin:command skill via the Skill tool` convention used by every other Skill invocation in this file (`/kagura-memory:session-start`, `/claude-c-suite:ask`, …) — see CONTRIBUTING.md for why this phrasing is load-bearing for reliable Skill-tool routing.
+
+  **Skill-tool failure → degrade, do not abort.** If the Skill invocation fails (skill not found, transient error, the skill reports an error rather than a path), surface the error as a single-line warning (`warning: /superpowers:using-git-worktrees invocation failed — <first line of skill error>; falling back to native git worktree add`) and continue to the `SUPERPOWERS_PRESENT=false` fallback block below. `--worktree` remains usable even when superpowers is installed-but-broken; the operator never has to uninstall a plugin to recover. Only abort if the fallback path itself fails — in which case use the shape-specific recovery from the fallback block.
 
 - **`SUPERPOWERS_PRESENT=false` — direct fallback**: create the worktree under the repo-local `.worktrees/` convention (gitignored via `/.worktrees/`).
 
@@ -942,7 +945,7 @@ When `lang != "en"`, produce the AskUserQuestion question text, all three option
 | Default branch fast-forward fails | Abort. Tell the user to reconcile manually. Never auto-rebase. |
 | Branch already exists | Auto-suffix with today's UTC date and inform the user. |
 | `--worktree` target already exists (fallback path) | Abort with the shape-specific recovery hint from step 13b: `git worktree remove` + `prune` if both on disk and registered; manual `rm`/rename if on disk only (unregistered); `git worktree prune` alone if only the registration is stale. Do not auto-clean. |
-| `--worktree` + superpowers delegation fails | Abort with the skill's error. Operator can retry without `--worktree` for in-place checkout, or uninstall superpowers to hit the fallback. |
+| `--worktree` + superpowers delegation fails | Degrade, do not abort: surface the skill error as a warning and fall through to the native `git worktree add .worktrees/<branch>` fallback (step 13b). Only abort if the fallback path itself fails, in which case use its shape-specific recovery guidance. |
 | Reviewer skill missing | Degrade: `gate1` becomes advisory-only, prints a warning, continues. |
 | Kagura missing | Degrade: skip recall and session-start, print a warning, continue. |
 
