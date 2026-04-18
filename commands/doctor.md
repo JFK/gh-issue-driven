@@ -361,36 +361,50 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
      ```
      (Available from the Claude Code official marketplace — no marketplace add needed.)
 
+11. **Worktree plugin: `superpowers`** (optional — enhances `/gh-issue-driven:start --worktree` with smart directory selection)
+   - Probe via plugin cache glob: `~/.claude/plugins/cache/superpowers*`. `start.md` step 13b uses the **identical glob probe** (`ls -d ~/.claude/plugins/cache/superpowers*`) so the two commands answer "is superpowers installed?" the same way — they MUST NOT drift. When changing the glob here, update `commands/start.md` step 13b in the same commit.
+   - Run the Plugin Metadata Resolution Procedure with:
+     - `PMRP_GLOB=superpowers*`
+     - `PMRP_SKILL=superpowers`
+     - `PMRP_OFFICIAL=false`
+   - If `PLUGIN_FOUND=false`: emit `⚠️  superpowers: not installed — /gh-issue-driven:start --worktree will fall back to direct `git worktree add .worktrees/<branch>`, which still works (no hard requirement)`.
+   - Otherwise: emit the status line per the procedure's output format.
+   - When `fix` flag is set AND missing, append a 2-line `try:` block:
+     ```
+        try: /plugin marketplace add obra/superpowers-marketplace
+             /plugin install superpowers@superpowers-marketplace
+     ```
+
 > Note: the second token in `/plugin install <plugin>@<marketplace>` is the **marketplace name** (the `name` field in the marketplace's `marketplace.json`), NOT the GitHub repository slug. The README's [Install section](../README.md#60-second-quickstart) is the canonical place where the marketplace-name-vs-repo-slug distinction is documented; this `try:` block intentionally mirrors that exact form. If the exact `<plugin>@<marketplace>` syntax differs in your Claude Code version, the marketplace add line is the load-bearing part — you can then use the interactive `/plugin install` UI to pick the plugin from the just-added marketplace.
 
 ### Informational checks
 
-11. **Working tree clean**
+12. **Working tree clean**
     ```bash
     test -z "$(git status --porcelain)"
     ```
     Warn if dirty (but `start` would refuse anyway — this is an early heads-up).
 
-12. **Configuration file**
+13. **Configuration file**
     ```bash
     test -f ~/.claude/gh-issue-driven-config.json && jq empty ~/.claude/gh-issue-driven-config.json
     ```
     - Missing → informational, defaults will be used. Hint: `/gh-issue-driven:config init`.
     - Present but unparseable → warn with the `jq` error.
 
-13. **gh API scope check**
+14. **gh API scope check**
     ```bash
     gh api user --jq .login
     ```
     Just to confirm the auth has API access.
 
-14. **Copilot reviewer reachability** (informational, may be unsupported on some plans)
+15. **Copilot reviewer reachability** (informational, may be unsupported on some plans)
     ```bash
     gh api repos/:owner/:repo/collaborators 2>/dev/null | grep -q copilot
     ```
     Print `✅` / `⚠️ Copilot reviewer not detected — may still work via @copilot mention`.
 
-15. **Stale state files**
+16. **Stale state files**
     List `~/.claude/cache/gh-issue-driven/*.json` and check whether the corresponding branch (decoded from filename) still exists locally:
     ```bash
     git show-ref --verify --quiet refs/heads/<branch>
@@ -401,7 +415,7 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
     ```
     Never auto-delete.
 
-16. **Copilot review instructions**
+17. **Copilot review instructions**
     ```bash
     test -f .github/copilot-instructions.md
     ```
@@ -409,6 +423,19 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
     - Absent → `ℹ️  copilot-instructions: .github/copilot-instructions.md not found — Copilot review quality improves with project-specific instructions. See: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review`
 
     This is informational only — never `⚠️` or `❌`. The file is optional but recommended for repos that use the Copilot review loop (`/gh-issue-driven:ship` step 14).
+
+18. **Worktree gitignore entry** (informational — only relevant when `/gh-issue-driven:start --worktree` is used without `superpowers` installed)
+    ```bash
+    grep -qE '^/?\.worktrees/?$' .gitignore 2>/dev/null
+    ```
+    - Match → `✅ worktree gitignore: /.worktrees/ entry present in .gitignore`
+    - No match AND `.gitignore` exists → `ℹ️  worktree gitignore: .gitignore has no /.worktrees/ entry — add one if you plan to use /gh-issue-driven:start --worktree and superpowers is not installed (the fallback path creates worktrees under .worktrees/<branch> inside this repo and they should not be committed)`
+    - `.gitignore` absent → `ℹ️  worktree gitignore: .gitignore not present — skipped`
+
+    This is informational only, never `⚠️` or `❌`. The entry only matters for the superpowers-less fallback in `start.md` step 13b; with superpowers installed, worktrees typically live outside the repo (smart directory selection) and the entry is moot. When `fix` flag is set AND the entry is missing AND `.gitignore` exists, append a single `try:` line:
+    ```
+       try: printf '%s\n' '' '# Git worktrees from /gh-issue-driven:start --worktree (local-only)' '/.worktrees/' >> .gitignore
+    ```
 
 ### Final summary
 

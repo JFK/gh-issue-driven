@@ -23,5 +23,8 @@ venv/
 *.tmp
 *.bak
 
+# Git worktrees created by `/gh-issue-driven:start --worktree` (local convenience only)
+/.worktrees/
+
 # Logs
 *.log

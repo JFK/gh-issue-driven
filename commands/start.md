@@ -5,7 +5,7 @@ arguments:
     description: "One or more GitHub issue identifiers (number, full URL, or owner/repo#number). Multiple IDs create a batch branch. Required (at least one)."
     required: true
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--branch=<name>' (override the derived branch name)."
+    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--worktree' (create an isolated git worktree at .worktrees/<branch> instead of checking out in-place — delegates to superpowers:using-git-worktrees when installed), '--branch=<name>' (override the derived branch name; combines with --worktree to place the worktree at .worktrees/<override-branch-name>)."
     required: false
 ---
 
@@ -55,7 +55,7 @@ Iterate over `$ARGUMENTS` tokens left-to-right. Each token is classified by **po
   - URL form: `^https://github\.com/.+/.+/issues/[0-9]+$`
   - Short form: `^[^/]+/[^#]+#[0-9]+$`
 - **`--branch=<name>` flag** — matches `^--branch=.+$`. Extract the value after `=` as `BRANCH_OVERRIDE`.
-- **Known flag** — one of: `dry-run`, `force`, `no-memory`
+- **Known flag** — one of: `dry-run`, `force`, `no-memory`, `--worktree`
 - **Unknown** — reject with a clear error listing valid flags and the multi-issue syntax.
 
 All leading tokens that match the issue identifier pattern are collected into the `ISSUE_IDS` list (preserving order). The first token that does NOT match an issue identifier pattern marks the boundary — all remaining tokens are parsed as flags.
@@ -79,6 +79,7 @@ Set booleans from flag tokens:
   - `DRY_RUN=true` if `dry-run` is present
   - `FORCE=true` if `force` is present
   - `NO_MEMORY=true` if `no-memory` is present
+  - `WORKTREE=true` if `--worktree` is present (default: `false`)
   - `BRANCH_OVERRIDE` from `--branch=<value>` if present (default: `null`)
 
 #### 1a. Validate parsed arguments against allow-list
@@ -598,16 +599,70 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 Skip this step entirely if `DRY_RUN` is true.
 
+Bring the local default branch up to date in both sub-paths:
+
 ```bash
 DEFAULT_BRANCH=<from config>
 git fetch origin "$DEFAULT_BRANCH"
 git checkout "$DEFAULT_BRANCH"
 git pull --ff-only origin "$DEFAULT_BRANCH"
+```
+
+If `git pull --ff-only` fails (your local default branch has diverged), abort with a clear instruction to reconcile manually. Do not auto-rebase, do not auto-merge.
+
+Then branch on `WORKTREE`:
+
+#### 13a. In-place branch (default — `WORKTREE=false`)
+
+```bash
 git checkout -b <branch>
 git rev-parse --abbrev-ref HEAD  # verify
 ```
 
-If `git pull --ff-only` fails (your local default branch has diverged), abort with a clear instruction to reconcile manually. Do not auto-rebase, do not auto-merge.
+Set `WORKTREE_PATH=null` (for the state file and recap). The operator continues working in the current working directory.
+
+#### 13b. Isolated worktree (`WORKTREE=true`)
+
+The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on the default branch (or on another feature branch) while implementation proceeds in the new one.
+
+**Probe for `superpowers` plugin** (same method as `commands/doctor.md`'s PMRP step 1 — `ls ~/.claude/plugins/cache/superpowers*` succeeds iff installed):
+
+```bash
+if ls -d ~/.claude/plugins/cache/superpowers* >/dev/null 2>&1; then
+  SUPERPOWERS_PRESENT=true
+else
+  SUPERPOWERS_PRESENT=false
+fi
+```
+
+Then choose a path:
+
+- **`SUPERPOWERS_PRESENT=true` — delegate to superpowers**:
+
+  > **Invoke the `superpowers:using-git-worktrees` skill via the Skill tool**, asking it to create a worktree for branch `<branch>` off `<DEFAULT_BRANCH>`. Wait for the skill to complete. Capture the resulting worktree path the skill reports (it performs its own smart directory selection and safety checks — the path may or may not be under `.worktrees/`).
+  >
+  > Set `WORKTREE_PATH=<path the skill used>`.
+
+- **`SUPERPOWERS_PRESENT=false` — direct fallback**: create the worktree under the repo-local `.worktrees/` convention (gitignored via `/.worktrees/`).
+
+  ```bash
+  WORKTREE_PATH=".worktrees/<branch>"
+  if [ -e "$WORKTREE_PATH" ]; then
+    echo "error: '$WORKTREE_PATH' already exists — a stale worktree may be present."
+    echo "       Clean it up first, then re-run: git worktree remove '$WORKTREE_PATH' && git worktree prune"
+    echo "       If git reports the worktree is already registered but the directory was manually deleted,"
+    echo "       'git worktree prune' alone is enough."
+    exit 6
+  fi
+  mkdir -p "$(dirname "$WORKTREE_PATH")"
+  git worktree add "$WORKTREE_PATH" -b "<branch>" "$DEFAULT_BRANCH"
+  ```
+
+  Abort cleanly with the error above rather than surfacing the raw `git worktree add` error — this is the most common stale-state footgun for operators, and the error message needs to point directly at the recovery commands.
+
+In both sub-paths, the branch name (`<branch>`) is the same value computed in step 6 — it already accounts for `--branch=<override>`, so when both `--worktree` and `--branch=<override>` are set the worktree directory is `.worktrees/<override>` (fallback path) or whatever superpowers picked for that branch name (delegated path).
+
+Do NOT `cd` into `WORKTREE_PATH` from within this command — the operator's shell is what needs to move, not Claude's virtual working directory. Step 16's recap instructs the operator explicitly.
 
 ### 14. Persist the state file
 
@@ -642,6 +697,7 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
   "branch": "<branch>",
   "branch_type": "<type>",
   "is_batch": <IS_BATCH>,
+  "worktree_path": "<WORKTREE_PATH or null>",
   "started_at": "<UTC ISO-8601>",
   "phase": "designed",
   "gate1": {
@@ -662,7 +718,8 @@ Schema notes:
 - **`issues` array**: contains all issues in input order. Each entry has `number`, `title`, `url`, and `labels`.
 - **`issue_number`, `issue_title`, `issue_url`**: v1-compatible aliases pointing to `issues[0]` (the primary issue). These fields ensure that `ship.md`, `status.md`, and any v1-era state readers continue to work without modification until they adopt the `issues` array.
 - **`is_batch`**: `true` when `len(issues) > 1`, `false` otherwise. Allows downstream commands to branch on batch mode without counting the array.
-- **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array. Readers should check for `issues` first and fall back to the top-level aliases.
+- **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). `null` when `--worktree` was not used. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
+- **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`.
 
 `<branch-flat>` is the branch name with `/` replaced by `-` so it works as a filename.
 
@@ -682,6 +739,10 @@ Output exactly one block in this format:
 Issue   #<num> <title>
         <url>
 Branch  <branch>  (created from <default-branch>)
+<if WORKTREE=true:>
+Worktree <WORKTREE_PATH>
+        → cd <WORKTREE_PATH> to work on this branch
+</if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
@@ -696,11 +757,17 @@ Issues  #<n1> <title1>
         #<n3> <title3>
         ...
 Branch  <branch>  (created from <default-branch>)
+<if WORKTREE=true:>
+Worktree <WORKTREE_PATH>
+        → cd <WORKTREE_PATH> to work on this branch
+</if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo]) — batch coherence review
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
 ```
+
+The `Worktree` line is printed verbatim from `WORKTREE_PATH` (set in step 13b). When `--worktree` is combined with `--branch=<override>`, `WORKTREE_PATH` already reflects the override (e.g. `.worktrees/<override>`), so the `cd` hint always matches reality. When `--worktree` is absent, both `WORKTREE_PATH` and this entire line block are omitted — the recap stays identical to the pre-`--worktree` output for non-worktree runs.
 
 ### 17. Print implementation guidance
 
@@ -830,6 +897,8 @@ When `lang != "en"`, produce the AskUserQuestion question text, all three option
 | Working tree dirty | Abort. List the dirty files. Tell the user to commit or stash. |
 | Default branch fast-forward fails | Abort. Tell the user to reconcile manually. Never auto-rebase. |
 | Branch already exists | Auto-suffix with today's UTC date and inform the user. |
+| `--worktree` target already exists (fallback path) | Abort with `git worktree remove <path> && git worktree prune` recovery hint (step 13b). Do not auto-clean. |
+| `--worktree` + superpowers delegation fails | Abort with the skill's error. Operator can retry without `--worktree` for in-place checkout, or uninstall superpowers to hit the fallback. |
 | Reviewer skill missing | Degrade: `gate1` becomes advisory-only, prints a warning, continues. |
 | Kagura missing | Degrade: skip recall and session-start, print a warning, continue. |
 
