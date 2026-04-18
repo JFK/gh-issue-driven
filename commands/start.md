@@ -651,7 +651,7 @@ Then choose a path:
 
   Two stale-state footguns exist and must both be detected before calling `git worktree add`:
   1. The target directory already exists on disk (operator left a stale copy behind).
-  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_ABS" ]` misses this — the registry must be queried explicitly.
+  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_PATH" ]` misses this — the registry must be queried explicitly.
 
   ```bash
   REPO_ROOT=$(git rev-parse --show-toplevel)
