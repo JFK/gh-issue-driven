@@ -599,7 +599,7 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 Skip this step entirely if `DRY_RUN` is true.
 
-Each sub-path owns its own remote-refresh step — 13a's `git pull` already performs a fetch, so no shared pre-fetch is needed. Keeping the fetch inside each sub-path also preserves the "no behavior change when `--worktree` is absent" contract for 13a (network calls identical to the pre-`--worktree` version of this step).
+Each sub-path owns its own remote-refresh step. In 13a, `git pull` already performs the required fetch, so no shared pre-fetch is needed. Keeping the remote refresh inside each sub-path preserves the default-path flow when `--worktree` is absent without requiring a separate top-level fetch step — 13a's sequence `checkout → pull → checkout -b` is unchanged from the pre-`--worktree` version.
 
 Branch on `WORKTREE`:
 

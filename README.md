@@ -189,7 +189,7 @@ If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emittin
 ### Two paths, same flag
 
 - **With `superpowers` plugin installed**: delegates to `superpowers:using-git-worktrees`, which performs smart directory selection outside the repo (typically a sibling path).
-- **Without `superpowers`**: fallback creates `.worktrees/<branch>` inside the repo. The directory is gitignored via `/.worktrees/` (entry added for you if you run `/gh-issue-driven:doctor --fix`). When combined with `--branch=<override>`, the fallback places the worktree at `.worktrees/<override>`.
+- **Without `superpowers`**: fallback creates `.worktrees/<branch>` inside the repo. The directory should be gitignored via `/.worktrees/`; running `/gh-issue-driven:doctor fix` prints an idempotent `try:` command to append that entry, which the operator runs manually (doctor itself is read-only and never edits files). When combined with `--branch=<override>`, the fallback places the worktree at `.worktrees/<override>`.
 
 In both cases, the `start` recap prints a `cd <worktree-path>` hint so you land in the new worktree on your next shell prompt.
 

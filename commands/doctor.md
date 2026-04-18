@@ -426,22 +426,26 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
 
 18. **Worktree gitignore entry** (informational — only relevant when `/gh-issue-driven:start --worktree` is used without `superpowers` installed)
 
-    Resolve the repo root first so the check works regardless of which subdirectory doctor is invoked from — `.gitignore` is anchored to the repo root, so reading the cwd-relative file would false-negative for any invocation outside the top level.
+    Resolve the repo root first so the check works regardless of which subdirectory doctor is invoked from — `.gitignore` is anchored to the repo root, so reading the cwd-relative file would false-negative for any invocation outside the top level. Three outcomes must be distinguishable in the caller (match, missing, absent), so an `if / elif / else` with an explicit status variable is clearer than relying on the exit status of a nested `grep` inside an `if`:
 
     ```bash
     REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-    if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.gitignore" ]; then
-      grep -qE '^/?\.worktrees/?$' "$REPO_ROOT/.gitignore"
+    if [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/.gitignore" ]; then
+      WORKTREE_GITIGNORE_STATUS=absent         # not in a git repo, or no repo-root .gitignore
+    elif grep -qE '^/?\.worktrees/?$' "$REPO_ROOT/.gitignore"; then
+      WORKTREE_GITIGNORE_STATUS=match          # entry present
+    else
+      WORKTREE_GITIGNORE_STATUS=missing        # .gitignore exists but no /.worktrees/ entry
     fi
     ```
 
-    - Match → `✅ worktree gitignore: /.worktrees/ entry present in repo-root .gitignore`
-    - No match AND repo-root `.gitignore` exists → `ℹ️  worktree gitignore: .gitignore has no /.worktrees/ entry — add one if you plan to use /gh-issue-driven:start --worktree and superpowers is not installed (the fallback path creates worktrees under .worktrees/<branch> inside this repo and they should not be committed)`
-    - `.gitignore` absent at the repo root → `ℹ️  worktree gitignore: repo-root .gitignore not present — skipped`
+    - `match` → `✅ worktree gitignore: /.worktrees/ entry present in repo-root .gitignore`
+    - `missing` → `ℹ️  worktree gitignore: .gitignore has no /.worktrees/ entry — add one if you plan to use /gh-issue-driven:start --worktree and superpowers is not installed (the fallback path creates worktrees under .worktrees/<branch> inside this repo and they should not be committed)`
+    - `absent` → `ℹ️  worktree gitignore: repo-root .gitignore not present — skipped`
 
-    This is informational only, never `⚠️` or `❌`. The entry only matters for the superpowers-less fallback in `start.md` step 13b; with superpowers installed, worktrees typically live outside the repo (smart directory selection) and the entry is moot. When `fix` flag is set AND the entry is missing AND repo-root `.gitignore` exists, append a single `try:` line. The suggested command is **idempotent** — it grep-guards against existing entries before appending, so re-running it (or running it after the grep check false-negatives on a formatting variant) is safe:
+    This is informational only, never `⚠️` or `❌`. The entry only matters for the superpowers-less fallback in `start.md` step 13b; with superpowers installed, worktrees typically live outside the repo (smart directory selection) and the entry is moot. When `fix` flag is set AND `WORKTREE_GITIGNORE_STATUS=missing`, append a single `try:` line. The suggested command is **idempotent** — it strips comment lines and then uses the **same anchored pattern as the check above** to grep-guard, so re-running it is safe and the guard cannot false-positive on comment lines or substring matches in unrelated paths (e.g. `foo/.worktrees/bar`):
     ```
-       try: gitignore="$(git rev-parse --show-toplevel)/.gitignore" && grep -qxE '/?\.worktrees/?' "$gitignore" 2>/dev/null || printf '%s\n' '' '# Git worktrees from /gh-issue-driven:start --worktree (local-only)' '/.worktrees/' >> "$gitignore"
+       try: gitignore="$(git rev-parse --show-toplevel)/.gitignore" && grep -vE '^[[:space:]]*#' "$gitignore" 2>/dev/null | grep -qxE '^/?\.worktrees/?$' || printf '%s\n' '' '# Git worktrees from /gh-issue-driven:start --worktree (local-only)' '/.worktrees/' >> "$gitignore"
     ```
 
 ### Final summary

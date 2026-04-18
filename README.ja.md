@@ -188,7 +188,7 @@ PR が default branch にマージされ、milestone の準備が整った後に
 ### 1 つのフラグに 2 系統のパス
 
 - **`superpowers` プラグインが入っている場合**: `superpowers:using-git-worktrees` に委譲されます。smart directory selection によって、通常はリポジトリ外の sibling path に worktree が配置されます。
-- **入っていない場合**: フォールバックとしてリポジトリ内の `.worktrees/<branch>` に作成します。このディレクトリは `/.worktrees/` エントリで gitignore 済み(`/gh-issue-driven:doctor --fix` で自動追記されます)。`--branch=<override>` と併用すると `.worktrees/<override>` に配置されます。
+- **入っていない場合**: フォールバックとしてリポジトリ内の `.worktrees/<branch>` に作成します。このディレクトリは `/.worktrees/` エントリで gitignore しておく想定で、`/gh-issue-driven:doctor fix` を実行すると `/.worktrees/` 追記用の `try:` コマンドが表示されます(doctor 自身は read-only でファイル編集は一切しないため、オペレータが手動で実行します)。`--branch=<override>` と併用すると `.worktrees/<override>` に配置されます。
 
 どちらのパスでも、`start` の recap に `cd <worktree-path>` のヒントが表示されるので、次のシェルプロンプトで正しい作業ディレクトリに移動できます。
 
