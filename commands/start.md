@@ -647,17 +647,19 @@ Then choose a path:
 
 - **`SUPERPOWERS_PRESENT=false` — direct fallback**: create the worktree under the repo-local `.worktrees/` convention (gitignored via `/.worktrees/`).
 
+  Anchor paths at the repo root (`git rev-parse --show-toplevel`) so `/start --worktree` behaves correctly regardless of which subdirectory the operator invoked it from. The repo-root `/.worktrees/` gitignore rule is root-anchored, so a worktree accidentally created at `<subdir>/.worktrees/<branch>` would NOT be ignored. Pinning to the repo root also keeps the stale-registration compare (which is against absolute paths from `git worktree list --porcelain`) correct.
+
   Two stale-state footguns exist and must both be detected before calling `git worktree add`:
   1. The target directory already exists on disk (operator left a stale copy behind).
-  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_PATH" ]` misses this — the registry must be queried explicitly.
+  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_ABS" ]` misses this — the registry must be queried explicitly.
 
   ```bash
-  WORKTREE_PATH=".worktrees/<branch>"
-  WORKTREE_ABS="$(pwd)/$WORKTREE_PATH"
+  REPO_ROOT=$(git rev-parse --show-toplevel)
+  WORKTREE_PATH="$REPO_ROOT/.worktrees/<branch>"   # absolute, anchored to the repo root
   STALE=""
   [ -e "$WORKTREE_PATH" ] && STALE="directory exists on disk"
   if [ -z "$STALE" ] && git worktree list --porcelain 2>/dev/null \
-       | awk '/^worktree /{print $2}' | grep -qxF "$WORKTREE_ABS"; then
+       | awk '/^worktree /{print $2}' | grep -qxF "$WORKTREE_PATH"; then
     STALE="still registered in git worktree list (directory missing on disk)"
   fi
   if [ -n "$STALE" ]; then
@@ -671,7 +673,7 @@ Then choose a path:
   git worktree add "$WORKTREE_PATH" -b "<branch>" "$DEFAULT_BRANCH"
   ```
 
-  Abort cleanly with the structured error above rather than surfacing the raw `git worktree add` error — both failure modes (filesystem clash, stale registration) need to route the operator to the same recovery commands. Use `grep -qxF` so the comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_ABS` as a substring.
+  `WORKTREE_PATH` is stored in the state file and rendered in the step 16 recap exactly as computed above — i.e. an absolute path under the repo root. The `cd <WORKTREE_PATH>` hint then works from any shell regardless of the operator's current directory. Abort cleanly with the structured error above rather than surfacing the raw `git worktree add` error — both failure modes (filesystem clash, stale registration) need to route the operator to the same recovery commands. Use `grep -qxF` so the comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_PATH` as a substring.
 
 In both sub-paths, the branch name (`<branch>`) is the same value computed in step 6 — it already accounts for `--branch=<override>`, so when both `--worktree` and `--branch=<override>` are set the worktree directory is `.worktrees/<override>` (fallback path) or whatever superpowers picked for that branch name (delegated path).
 

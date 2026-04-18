@@ -16,7 +16,7 @@ What stays English regardless of `lang`:
 - The cache file's JSON content and the state schema field names
 - The `try:` hint commands themselves (e.g. `apt install jq`, `/plugin install ...`) — only the surrounding prose is localized
 
-The Configuration file health check at step 11 reads `~/.claude/gh-issue-driven-config.json` as part of its informational scan; doctor's own `lang` read in this section is just-in-time, separate from step 11. (Same just-in-time pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`.)
+The Configuration file health check at step 13 reads `~/.claude/gh-issue-driven-config.json` as part of its informational scan; doctor's own `lang` read in this section is just-in-time, separate from step 13. (Same just-in-time pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`.)
 
 ## Trust boundary
 
@@ -425,16 +425,23 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
     This is informational only — never `⚠️` or `❌`. The file is optional but recommended for repos that use the Copilot review loop (`/gh-issue-driven:ship` step 14).
 
 18. **Worktree gitignore entry** (informational — only relevant when `/gh-issue-driven:start --worktree` is used without `superpowers` installed)
-    ```bash
-    grep -qE '^/?\.worktrees/?$' .gitignore 2>/dev/null
-    ```
-    - Match → `✅ worktree gitignore: /.worktrees/ entry present in .gitignore`
-    - No match AND `.gitignore` exists → `ℹ️  worktree gitignore: .gitignore has no /.worktrees/ entry — add one if you plan to use /gh-issue-driven:start --worktree and superpowers is not installed (the fallback path creates worktrees under .worktrees/<branch> inside this repo and they should not be committed)`
-    - `.gitignore` absent → `ℹ️  worktree gitignore: .gitignore not present — skipped`
 
-    This is informational only, never `⚠️` or `❌`. The entry only matters for the superpowers-less fallback in `start.md` step 13b; with superpowers installed, worktrees typically live outside the repo (smart directory selection) and the entry is moot. When `fix` flag is set AND the entry is missing AND `.gitignore` exists, append a single `try:` line:
+    Resolve the repo root first so the check works regardless of which subdirectory doctor is invoked from — `.gitignore` is anchored to the repo root, so reading the cwd-relative file would false-negative for any invocation outside the top level.
+
+    ```bash
+    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.gitignore" ]; then
+      grep -qE '^/?\.worktrees/?$' "$REPO_ROOT/.gitignore"
+    fi
     ```
-       try: printf '%s\n' '' '# Git worktrees from /gh-issue-driven:start --worktree (local-only)' '/.worktrees/' >> .gitignore
+
+    - Match → `✅ worktree gitignore: /.worktrees/ entry present in repo-root .gitignore`
+    - No match AND repo-root `.gitignore` exists → `ℹ️  worktree gitignore: .gitignore has no /.worktrees/ entry — add one if you plan to use /gh-issue-driven:start --worktree and superpowers is not installed (the fallback path creates worktrees under .worktrees/<branch> inside this repo and they should not be committed)`
+    - `.gitignore` absent at the repo root → `ℹ️  worktree gitignore: repo-root .gitignore not present — skipped`
+
+    This is informational only, never `⚠️` or `❌`. The entry only matters for the superpowers-less fallback in `start.md` step 13b; with superpowers installed, worktrees typically live outside the repo (smart directory selection) and the entry is moot. When `fix` flag is set AND the entry is missing AND repo-root `.gitignore` exists, append a single `try:` line:
+    ```
+       try: printf '%s\n' '' '# Git worktrees from /gh-issue-driven:start --worktree (local-only)' '/.worktrees/' >> "$(git rev-parse --show-toplevel)/.gitignore"
     ```
 
 ### Final summary
