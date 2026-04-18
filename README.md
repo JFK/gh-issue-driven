@@ -184,7 +184,7 @@ If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emittin
 
 ## Parallel development (`--worktree`)
 
-`/gh-issue-driven:start --worktree <issue>` creates the feature branch inside a separate [git worktree](https://git-scm.com/docs/git-worktree) instead of checking out in-place. This lets you keep the main working tree on `main` (or on another feature branch) while implementation proceeds in the new one.
+`/gh-issue-driven:start <issue> --worktree` creates the feature branch inside a separate [git worktree](https://git-scm.com/docs/git-worktree) instead of checking out in-place. This lets you keep the main working tree on `main` (or on another feature branch) while implementation proceeds in the new one. (Flag order matters — `start` parses issue identifiers first, then flags, so `--worktree` comes *after* the issue.)
 
 ### Two paths, same flag
 

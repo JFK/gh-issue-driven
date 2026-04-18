@@ -183,7 +183,7 @@ PR が default branch にマージされ、milestone の準備が整った後に
 
 ## 並行開発 (`--worktree`)
 
-`/gh-issue-driven:start --worktree <issue>` は、in-place で checkout する代わりに、新しい feature branch を別の [git worktree](https://git-scm.com/docs/git-worktree) の中に作成します。これによりメインの作業ディレクトリを `main`(または別の feature branch)のままにしつつ、新しい branch での実装を別ディレクトリで並行して進められます。
+`/gh-issue-driven:start <issue> --worktree` は、in-place で checkout する代わりに、新しい feature branch を別の [git worktree](https://git-scm.com/docs/git-worktree) の中に作成します。これによりメインの作業ディレクトリを `main`(または別の feature branch)のままにしつつ、新しい branch での実装を別ディレクトリで並行して進められます。(`start` は issue identifier を先に解釈し、続くトークンを flag として解釈するので、`--worktree` は必ず issue の *後* に置きます。)
 
 ### 1 つのフラグに 2 系統のパス
 

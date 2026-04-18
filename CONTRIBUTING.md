@@ -77,7 +77,7 @@ A few load-bearing principles that shape what gets accepted into `commands/`:
 
 - **Three phases, not four.** The plugin has exactly three user-facing phases: `/start` → `/ship` → `/tag`. When a feature adds a new capability to a phase, it lands as a **flag on the existing command**, not a new top-level command. For example, `/gh-issue-driven:start --worktree` (issue #62) is a flag, not a hypothetical `/gh-issue-driven:worktree` command — a new top-level command would fragment the mental model and break the `start → ship → tag` progression. New commands are reserved for genuinely new phases (like `/propose` and `/review`, which each represent a distinct phase of work).
 - **Plugin integration is opt-in, never required.** Integrations with other plugins (`superpowers`, `feature-dev`, `claude-c-suite`, `kagura-memory`) degrade to a safe fallback when the plugin is missing. Hard dependencies are limited to `gh`, `git`, `jq`, and (optionally) `python3`.
-- **Presence checks belong in one place.** If two commands need to answer the same "is plugin X installed?" question, they use the **same probe method** (see `commands/start.md` step 13b and `commands/doctor.md` step 11 for the `superpowers` example — both use `ls ~/.claude/plugins/cache/superpowers*`). Drift here silently produces inconsistent behavior.
+- **Presence checks belong in one place.** If two commands need to answer the same "is plugin X installed?" question, they use the **same probe method** (see `commands/start.md` step 13b and `commands/doctor.md` step 11 for the `superpowers` example — both use `ls -d ~/.claude/plugins/cache/superpowers*`). Drift here silently produces inconsistent behavior.
 
 ## Releasing
 

@@ -697,7 +697,7 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
   "branch": "<branch>",
   "branch_type": "<type>",
   "is_batch": <IS_BATCH>,
-  "worktree_path": "<WORKTREE_PATH or null>",
+  "worktree_path": <WORKTREE_PATH or null>,
   "started_at": "<UTC ISO-8601>",
   "phase": "designed",
   "gate1": {
@@ -718,7 +718,7 @@ Schema notes:
 - **`issues` array**: contains all issues in input order. Each entry has `number`, `title`, `url`, and `labels`.
 - **`issue_number`, `issue_title`, `issue_url`**: v1-compatible aliases pointing to `issues[0]` (the primary issue). These fields ensure that `ship.md`, `status.md`, and any v1-era state readers continue to work without modification until they adopt the `issues` array.
 - **`is_batch`**: `true` when `len(issues) > 1`, `false` otherwise. Allows downstream commands to branch on batch mode without counting the array.
-- **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). `null` when `--worktree` was not used. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
+- **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). Serialized as a JSON string when populated, or the unquoted JSON literal `null` when `--worktree` was not used — matching the convention of other nullable fields like `gate1.escalated_to`. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
 - **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`.
 
 `<branch-flat>` is the branch name with `/` replaced by `-` so it works as a filename.
