@@ -654,31 +654,46 @@ Then choose a path:
 
   Anchor paths at the repo root (`git rev-parse --show-toplevel`) so `/start --worktree` behaves correctly regardless of which subdirectory the operator invoked it from. The repo-root `/.worktrees/` gitignore rule is root-anchored, so a worktree accidentally created at `<subdir>/.worktrees/<branch>` would NOT be ignored. Pinning to the repo root also keeps the stale-registration compare (which is against absolute paths from `git worktree list --porcelain`) correct.
 
-  Two stale-state footguns exist and must both be detected before calling `git worktree add`:
-  1. The target directory already exists on disk (operator left a stale copy behind).
-  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_PATH" ]` misses this — the registry must be queried explicitly.
+  Three stale-state shapes exist and each needs a different recovery — probe both the filesystem and the registry independently (do NOT short-circuit: dir-on-disk and registry-registered are orthogonal), then dispatch the correct recovery message:
+
+  | Disk | Registered | Recovery |
+  |---|---|---|
+  | yes | yes | `git worktree remove '$WORKTREE_PATH' && git worktree prune` |
+  | yes | no  | Delete or rename the directory manually (`git worktree remove` would fail with "not a working tree"), then re-run |
+  | no  | yes | `git worktree prune` alone |
+  | no  | no  | No stale state — proceed to `git worktree add` |
 
   ```bash
   REPO_ROOT=$(git rev-parse --show-toplevel)
   WORKTREE_PATH="$REPO_ROOT/.worktrees/<branch>"   # absolute, anchored to the repo root
-  STALE=""
-  [ -e "$WORKTREE_PATH" ] && STALE="directory exists on disk"
-  if [ -z "$STALE" ] && git worktree list --porcelain 2>/dev/null \
+  ON_DISK=""
+  REGISTERED=""
+  [ -e "$WORKTREE_PATH" ] && ON_DISK="yes"
+  if git worktree list --porcelain 2>/dev/null \
        | sed -n 's/^worktree //p' | grep -qxF "$WORKTREE_PATH"; then
-    STALE="still registered in git worktree list (directory missing on disk)"
+    REGISTERED="yes"
   fi
-  if [ -n "$STALE" ]; then
-    echo "error: '$WORKTREE_PATH' is in a stale state — $STALE."
+
+  if [ -n "$ON_DISK" ] && [ -n "$REGISTERED" ]; then
+    echo "error: '$WORKTREE_PATH' is already an active worktree (directory AND registration)."
     echo "       Recover with: git worktree remove '$WORKTREE_PATH' && git worktree prune"
-    echo "       If only the registration is stale (directory already deleted),"
-    echo "       'git worktree prune' alone is enough."
+    exit 6
+  elif [ -n "$ON_DISK" ]; then
+    echo "error: '$WORKTREE_PATH' exists on disk but is NOT registered as a worktree."
+    echo "       Do NOT run 'git worktree remove' — it will fail with 'not a working tree'."
+    echo "       Delete or rename the directory manually and re-run, e.g.:"
+    echo "         rm -rf '$WORKTREE_PATH'    # only if the contents are safe to drop"
+    exit 6
+  elif [ -n "$REGISTERED" ]; then
+    echo "error: '$WORKTREE_PATH' is registered as a worktree but the directory is missing on disk."
+    echo "       Recover with: git worktree prune"
     exit 6
   fi
   mkdir -p "$(dirname "$WORKTREE_PATH")"
   git worktree add "$WORKTREE_PATH" -b "<branch>" "origin/$DEFAULT_BRANCH"
   ```
 
-  `WORKTREE_PATH` is stored in the state file and rendered in the step 16 recap exactly as computed above — i.e. an absolute path under the repo root. The `cd <WORKTREE_PATH>` hint then works from any shell regardless of the operator's current directory. Abort cleanly with the structured error above rather than surfacing the raw `git worktree add` error — both failure modes (filesystem clash, stale registration) need to route the operator to the same recovery commands. Use `grep -qxF` so the comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_PATH` as a substring.
+  `WORKTREE_PATH` is stored in the state file and rendered in the step 16 recap exactly as computed above — i.e. an absolute path under the repo root. The `cd <WORKTREE_PATH>` hint then works from any shell regardless of the operator's current directory. Abort cleanly with the structured error for the detected shape rather than surfacing the raw `git worktree add` error. Use `grep -qxF` so the registry comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_PATH` as a substring.
 
 In both sub-paths, the branch name (`<branch>`) is the same value computed in step 6 — it already accounts for `--branch=<override>`, so when both `--worktree` and `--branch=<override>` are set the worktree directory is `.worktrees/<override>` (fallback path) or whatever superpowers picked for that branch name (delegated path).
 
@@ -917,7 +932,7 @@ When `lang != "en"`, produce the AskUserQuestion question text, all three option
 | Working tree dirty | Abort. List the dirty files. Tell the user to commit or stash. |
 | Default branch fast-forward fails | Abort. Tell the user to reconcile manually. Never auto-rebase. |
 | Branch already exists | Auto-suffix with today's UTC date and inform the user. |
-| `--worktree` target already exists (fallback path) | Abort with `git worktree remove <path> && git worktree prune` recovery hint (step 13b). Do not auto-clean. |
+| `--worktree` target already exists (fallback path) | Abort with the shape-specific recovery hint from step 13b: `git worktree remove` + `prune` if both on disk and registered; manual `rm`/rename if on disk only (unregistered); `git worktree prune` alone if only the registration is stale. Do not auto-clean. |
 | `--worktree` + superpowers delegation fails | Abort with the skill's error. Operator can retry without `--worktree` for in-place checkout, or uninstall superpowers to hit the fallback. |
 | Reviewer skill missing | Degrade: `gate1` becomes advisory-only, prints a warning, continues. |
 | Kagura missing | Degrade: skip recall and session-start, print a warning, continue. |
