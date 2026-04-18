@@ -96,7 +96,7 @@ The 7-day TTL is a fixed const in this command, not a config knob — re-confirm
 
 #### Check logic
 
-Load the effective configuration just-in-time for this section: read `~/.claude/gh-issue-driven-config.json` if it exists and parses cleanly, then deep-merge user values over the built-in defaults documented in `/gh-issue-driven:config`. If the file is absent or unparseable, use the defaults silently — the broader Configuration file health check at step 11 (informational) will surface the parse error separately. The just-in-time load is necessary because this Copilot setup section runs in the Required-checks zone, **before** step 11; the two reads do not conflict because step 11 is informational and never blocks.
+Load the effective configuration just-in-time for this section: read `~/.claude/gh-issue-driven-config.json` if it exists and parses cleanly, then deep-merge user values over the built-in defaults documented in `/gh-issue-driven:config`. If the file is absent or unparseable, use the defaults silently — the broader Configuration file health check at step 13 (informational) will surface the parse error separately. The just-in-time load is necessary because this Copilot setup section runs in the Required-checks zone, **before** step 13; the two reads do not conflict because step 13 is informational and never blocks.
 
 From the merged config, read `copilot.skip_setup_prompt` (default `false`). If true, print one line `✅ Copilot setup: prompt skipped (copilot.skip_setup_prompt=true)` and skip to the gh version check at the bottom of this section.
 

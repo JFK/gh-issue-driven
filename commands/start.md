@@ -599,20 +599,16 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 Skip this step entirely if `DRY_RUN` is true.
 
-Fetch the default branch first (both sub-paths need an up-to-date remote ref):
+Each sub-path owns its own remote-refresh step — 13a's `git pull` already performs a fetch, so no shared pre-fetch is needed. Keeping the fetch inside each sub-path also preserves the "no behavior change when `--worktree` is absent" contract for 13a (network calls identical to the pre-`--worktree` version of this step).
 
-```bash
-DEFAULT_BRANCH=<from config>
-git fetch origin "$DEFAULT_BRANCH"
-```
-
-Then branch on `WORKTREE`:
+Branch on `WORKTREE`:
 
 #### 13a. In-place branch (default — `WORKTREE=false`)
 
-Move the current working tree to the default branch, fast-forward, and branch from there:
+Move the current working tree to the default branch, fast-forward, and branch from there. `git pull --ff-only` does its own fetch — no separate `git fetch` needed.
 
 ```bash
+DEFAULT_BRANCH=<from config>
 git checkout "$DEFAULT_BRANCH"
 git pull --ff-only origin "$DEFAULT_BRANCH"
 git checkout -b <branch>
@@ -625,7 +621,14 @@ Set `WORKTREE_PATH=null` (for the state file and recap). The operator continues 
 
 #### 13b. Isolated worktree (`WORKTREE=true`)
 
-The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on whatever branch they were on (including — crucially — a feature branch they weren't ready to leave). Base the new worktree off `origin/<DEFAULT_BRANCH>` (already fetched above) — **do not** `git checkout "$DEFAULT_BRANCH"` or run `git pull` in the current worktree, those would forcibly move the operator's primary directory onto the default branch and defeat the purpose of `--worktree`. Fast-forward of the local `<DEFAULT_BRANCH>` pointer is deferred to whenever the operator chooses to update it themselves (typically after merging this PR).
+The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on whatever branch they were on (including — crucially — a feature branch they weren't ready to leave). Base the new worktree off `origin/<DEFAULT_BRANCH>` — **do not** `git checkout "$DEFAULT_BRANCH"` or run `git pull` in the current worktree, those would forcibly move the operator's primary directory onto the default branch and defeat the purpose of `--worktree`. Fast-forward of the local `<DEFAULT_BRANCH>` pointer is deferred to whenever the operator chooses to update it themselves (typically after merging this PR).
+
+Refresh the remote-tracking ref before creating the worktree:
+
+```bash
+DEFAULT_BRANCH=<from config>
+git fetch origin "$DEFAULT_BRANCH"
+```
 
 **Probe for `superpowers` plugin** (same method as `commands/doctor.md`'s PMRP step 1 — `ls ~/.claude/plugins/cache/superpowers*` succeeds iff installed):
 
