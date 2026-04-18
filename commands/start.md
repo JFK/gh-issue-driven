@@ -659,7 +659,7 @@ Then choose a path:
   STALE=""
   [ -e "$WORKTREE_PATH" ] && STALE="directory exists on disk"
   if [ -z "$STALE" ] && git worktree list --porcelain 2>/dev/null \
-       | awk '/^worktree /{print $2}' | grep -qxF "$WORKTREE_PATH"; then
+       | sed -n 's/^worktree //p' | grep -qxF "$WORKTREE_PATH"; then
     STALE="still registered in git worktree list (directory missing on disk)"
   fi
   if [ -n "$STALE" ]; then
