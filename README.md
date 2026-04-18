@@ -182,6 +182,35 @@ If you maintain a `claude-c-suite` or `claude-phd-panel` reviewer skill, emittin
 
 ---
 
+## Parallel development (`--worktree`)
+
+`/gh-issue-driven:start <issue> --worktree` creates the feature branch inside a separate [git worktree](https://git-scm.com/docs/git-worktree) instead of checking out in-place. This lets you keep the main working tree on `main` (or on another feature branch) while implementation proceeds in the new one. (Flag order matters — `start` parses issue identifiers first, then flags, so `--worktree` comes *after* the issue.)
+
+### Two paths, same flag
+
+- **With `superpowers` plugin installed**: delegates to `superpowers:using-git-worktrees`, which performs smart directory selection outside the repo (typically a sibling path).
+- **Without `superpowers`**: fallback creates `.worktrees/<branch>` inside the repo. The directory should be gitignored via `/.worktrees/`; running `/gh-issue-driven:doctor fix` prints an idempotent `try:` command to append that entry, which the operator runs manually (doctor itself is read-only and never edits files). When combined with `--branch=<override>`, the fallback places the worktree at `.worktrees/<override>`.
+
+In both cases, the `start` recap prints a `cd <worktree-path>` hint so you land in the new worktree on your next shell prompt.
+
+### Lifecycle — clean up after merge
+
+A worktree is not automatically removed when the PR is merged. After merging and pulling `main`, run:
+
+```bash
+git worktree remove <worktree-path>
+git worktree prune   # cleans up any stale registrations
+```
+
+If you manually `rm -rf` the directory first (don't), `git worktree prune` alone is enough to clear the dangling registration.
+
+### When to use `--worktree` vs calling superpowers directly
+
+- **Use `start --worktree`** when you want the worktree tied to this plugin's 3-phase flow (`start → ship → tag`) — branch name, state file, and gate1 summary all land in the expected places for the new branch.
+- **Invoke `superpowers:using-git-worktrees` directly** when you want a worktree for something outside this plugin (reviewing an arbitrary branch, experimenting, etc.) — no state file, no gate1 review.
+
+---
+
 ## Copilot review loop
 
 After `gh pr create`, `/gh-issue-driven:ship` fires the reviewer add and pauses at a **HITL confirmation gate** (since v0.3.0) before entering the polling loop:

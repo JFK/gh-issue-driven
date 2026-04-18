@@ -181,6 +181,35 @@ PR が default branch にマージされ、milestone の準備が整った後に
 
 ---
 
+## 並行開発 (`--worktree`)
+
+`/gh-issue-driven:start <issue> --worktree` は、in-place で checkout する代わりに、新しい feature branch を別の [git worktree](https://git-scm.com/docs/git-worktree) の中に作成します。これによりメインの作業ディレクトリを `main`(または別の feature branch)のままにしつつ、新しい branch での実装を別ディレクトリで並行して進められます。(`start` は issue identifier を先に解釈し、続くトークンを flag として解釈するので、`--worktree` は必ず issue の *後* に置きます。)
+
+### 1 つのフラグに 2 系統のパス
+
+- **`superpowers` プラグインが入っている場合**: `superpowers:using-git-worktrees` に委譲されます。smart directory selection によって、通常はリポジトリ外の sibling path に worktree が配置されます。
+- **入っていない場合**: フォールバックとしてリポジトリ内の `.worktrees/<branch>` に作成します。このディレクトリは `/.worktrees/` エントリで gitignore しておく想定で、`/gh-issue-driven:doctor fix` を実行すると `/.worktrees/` 追記用の `try:` コマンドが表示されます(doctor 自身は read-only でファイル編集は一切しないため、オペレータが手動で実行します)。`--branch=<override>` と併用すると `.worktrees/<override>` に配置されます。
+
+どちらのパスでも、`start` の recap に `cd <worktree-path>` のヒントが表示されるので、次のシェルプロンプトで正しい作業ディレクトリに移動できます。
+
+### ライフサイクル ― merge 後の後片付け
+
+PR が merge されても worktree は自動削除されません。merge して `main` を pull したあと、以下を実行してください:
+
+```bash
+git worktree remove <worktree-path>
+git worktree prune   # 古い登録情報の掃除
+```
+
+先にディレクトリを `rm -rf` してしまった場合(推奨しません)は、`git worktree prune` だけで dangling 登録を解消できます。
+
+### `--worktree` を使うか、superpowers を直接呼ぶか
+
+- **`start --worktree` を使う**: このプラグインの 3 フェーズフロー (`start → ship → tag`) に worktree を紐付けたいとき。branch 名・state file・gate1 サマリが全て新 branch 用に揃います。
+- **`superpowers:using-git-worktrees` を直接呼ぶ**: このプラグインとは無関係に worktree が欲しいとき (任意 branch のレビュー、実験など) — state file も gate1 review も走りません。
+
+---
+
 ## Copilot レビューループ
 
 `gh pr create` の後、`/gh-issue-driven:ship` はレビュアの add を発火し、polling loop に入る前に **HITL 確認ゲート** で立ち止まります(v0.3.0 以降):
