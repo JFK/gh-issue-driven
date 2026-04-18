@@ -639,18 +639,31 @@ Then choose a path:
 
 - **`SUPERPOWERS_PRESENT=true` — delegate to superpowers**:
 
-  > **Invoke the `superpowers:using-git-worktrees` skill via the Skill tool**, asking it to create a worktree for branch `<branch>` off `<DEFAULT_BRANCH>`. Wait for the skill to complete. Capture the resulting worktree path the skill reports (it performs its own smart directory selection and safety checks — the path may or may not be under `.worktrees/`).
+  > **Invoke the `/superpowers:using-git-worktrees` skill via the Skill tool**, asking it to create a worktree for branch `<branch>` off `<DEFAULT_BRANCH>`. Wait for the skill to complete. Capture the resulting worktree path the skill reports (it performs its own smart directory selection and safety checks — the path may or may not be under `.worktrees/`).
   >
   > Set `WORKTREE_PATH=<path the skill used>`.
 
+  The leading `/` on the skill name matches the repo's `Invoke the /plugin:command skill via the Skill tool` convention used by every other Skill invocation in this file (`/kagura-memory:session-start`, `/claude-c-suite:ask`, …) — see CONTRIBUTING.md for why this phrasing is load-bearing for reliable Skill-tool routing.
+
 - **`SUPERPOWERS_PRESENT=false` — direct fallback**: create the worktree under the repo-local `.worktrees/` convention (gitignored via `/.worktrees/`).
+
+  Two stale-state footguns exist and must both be detected before calling `git worktree add`:
+  1. The target directory already exists on disk (operator left a stale copy behind).
+  2. The directory was manually deleted but the worktree is still registered with git (no filesystem entry, but `git worktree add` will reject with "already registered"). Checking only `[ -e "$WORKTREE_PATH" ]` misses this — the registry must be queried explicitly.
 
   ```bash
   WORKTREE_PATH=".worktrees/<branch>"
-  if [ -e "$WORKTREE_PATH" ]; then
-    echo "error: '$WORKTREE_PATH' already exists — a stale worktree may be present."
-    echo "       Clean it up first, then re-run: git worktree remove '$WORKTREE_PATH' && git worktree prune"
-    echo "       If git reports the worktree is already registered but the directory was manually deleted,"
+  WORKTREE_ABS="$(pwd)/$WORKTREE_PATH"
+  STALE=""
+  [ -e "$WORKTREE_PATH" ] && STALE="directory exists on disk"
+  if [ -z "$STALE" ] && git worktree list --porcelain 2>/dev/null \
+       | awk '/^worktree /{print $2}' | grep -qxF "$WORKTREE_ABS"; then
+    STALE="still registered in git worktree list (directory missing on disk)"
+  fi
+  if [ -n "$STALE" ]; then
+    echo "error: '$WORKTREE_PATH' is in a stale state — $STALE."
+    echo "       Recover with: git worktree remove '$WORKTREE_PATH' && git worktree prune"
+    echo "       If only the registration is stale (directory already deleted),"
     echo "       'git worktree prune' alone is enough."
     exit 6
   fi
@@ -658,7 +671,7 @@ Then choose a path:
   git worktree add "$WORKTREE_PATH" -b "<branch>" "$DEFAULT_BRANCH"
   ```
 
-  Abort cleanly with the error above rather than surfacing the raw `git worktree add` error — this is the most common stale-state footgun for operators, and the error message needs to point directly at the recovery commands.
+  Abort cleanly with the structured error above rather than surfacing the raw `git worktree add` error — both failure modes (filesystem clash, stale registration) need to route the operator to the same recovery commands. Use `grep -qxF` so the comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_ABS` as a substring.
 
 In both sub-paths, the branch name (`<branch>`) is the same value computed in step 6 — it already accounts for `--branch=<override>`, so when both `--worktree` and `--branch=<override>` are set the worktree directory is `.worktrees/<override>` (fallback path) or whatever superpowers picked for that branch name (delegated path).
 
