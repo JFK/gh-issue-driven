@@ -599,31 +599,33 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 Skip this step entirely if `DRY_RUN` is true.
 
-Bring the local default branch up to date in both sub-paths:
+Fetch the default branch first (both sub-paths need an up-to-date remote ref):
 
 ```bash
 DEFAULT_BRANCH=<from config>
 git fetch origin "$DEFAULT_BRANCH"
-git checkout "$DEFAULT_BRANCH"
-git pull --ff-only origin "$DEFAULT_BRANCH"
 ```
-
-If `git pull --ff-only` fails (your local default branch has diverged), abort with a clear instruction to reconcile manually. Do not auto-rebase, do not auto-merge.
 
 Then branch on `WORKTREE`:
 
 #### 13a. In-place branch (default — `WORKTREE=false`)
 
+Move the current working tree to the default branch, fast-forward, and branch from there:
+
 ```bash
+git checkout "$DEFAULT_BRANCH"
+git pull --ff-only origin "$DEFAULT_BRANCH"
 git checkout -b <branch>
 git rev-parse --abbrev-ref HEAD  # verify
 ```
+
+If `git pull --ff-only` fails (your local default branch has diverged), abort with a clear instruction to reconcile manually. Do not auto-rebase, do not auto-merge.
 
 Set `WORKTREE_PATH=null` (for the state file and recap). The operator continues working in the current working directory.
 
 #### 13b. Isolated worktree (`WORKTREE=true`)
 
-The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on the default branch (or on another feature branch) while implementation proceeds in the new one.
+The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on whatever branch they were on (including — crucially — a feature branch they weren't ready to leave). Base the new worktree off `origin/<DEFAULT_BRANCH>` (already fetched above) — **do not** `git checkout "$DEFAULT_BRANCH"` or run `git pull` in the current worktree, those would forcibly move the operator's primary directory onto the default branch and defeat the purpose of `--worktree`. Fast-forward of the local `<DEFAULT_BRANCH>` pointer is deferred to whenever the operator chooses to update it themselves (typically after merging this PR).
 
 **Probe for `superpowers` plugin** (same method as `commands/doctor.md`'s PMRP step 1 — `ls ~/.claude/plugins/cache/superpowers*` succeeds iff installed):
 
@@ -639,7 +641,7 @@ Then choose a path:
 
 - **`SUPERPOWERS_PRESENT=true` — delegate to superpowers**:
 
-  > **Invoke the `/superpowers:using-git-worktrees` skill via the Skill tool**, asking it to create a worktree for branch `<branch>` off `<DEFAULT_BRANCH>`. Wait for the skill to complete. Capture the resulting worktree path the skill reports (it performs its own smart directory selection and safety checks — the path may or may not be under `.worktrees/`).
+  > **Invoke the `/superpowers:using-git-worktrees` skill via the Skill tool**, asking it to create a worktree for branch `<branch>` off `origin/<DEFAULT_BRANCH>` (i.e. the remote-tracking ref, not the local `<DEFAULT_BRANCH>` which may be behind). Wait for the skill to complete. Capture the resulting worktree path the skill reports (it performs its own smart directory selection and safety checks — the path may or may not be under `.worktrees/`).
   >
   > Set `WORKTREE_PATH=<path the skill used>`.
 
@@ -670,7 +672,7 @@ Then choose a path:
     exit 6
   fi
   mkdir -p "$(dirname "$WORKTREE_PATH")"
-  git worktree add "$WORKTREE_PATH" -b "<branch>" "$DEFAULT_BRANCH"
+  git worktree add "$WORKTREE_PATH" -b "<branch>" "origin/$DEFAULT_BRANCH"
   ```
 
   `WORKTREE_PATH` is stored in the state file and rendered in the step 16 recap exactly as computed above — i.e. an absolute path under the repo root. The `cd <WORKTREE_PATH>` hint then works from any shell regardless of the operator's current directory. Abort cleanly with the structured error above rather than surfacing the raw `git worktree add` error — both failure modes (filesystem clash, stale registration) need to route the operator to the same recovery commands. Use `grep -qxF` so the comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_PATH` as a substring.
