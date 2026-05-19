@@ -211,6 +211,48 @@ If you manually `rm -rf` the directory first (don't), `git worktree prune` alone
 
 ---
 
+## Token-efficient flags (`auto-size`, `auto-skip`, `--with-plan`, `--parallel`)
+
+`/start` and `/ship` accept opt-in flags that adapt the cascade to the actual scope of the work. Defaults are unchanged — when no flags are passed, behavior is byte-identical to v0.8.0.
+
+### `auto-size` — skip gate1 for small issues (`/start`)
+
+`/gh-issue-driven:start <issue> auto-size` invokes the **issue-size heuristic**: if the primary issue's labels match `gate1.size_heuristic.small_labels` (default `good first issue`, `documentation`, `docs`, `tests`, `i18n`) **or** the body is shorter than `small_body_max_chars` (default 500), gate1 is **skipped entirely**. No `/claude-c-suite:ask` invocation, no escalation. The state file records `gate1.reviewer="size-heuristic"` and a synthetic verdict markdown.
+
+The HITL confirmation gate still fires so you can override the skip with "I have feedback". Batch invocations (`/start 4 5 6`) are never small — bundling is itself a coherence signal.
+
+To make this the default for every `/start` run, set `gate1.size_heuristic.enabled: true` in `~/.claude/gh-issue-driven-config.json`.
+
+### `auto-skip` — skip irrelevant gate2 advisors (`/ship`)
+
+`/gh-issue-driven:ship auto-skip` probes the diff and, when every changed file matches `gate2.diff_scope_skip.docs_only_patterns` (default `README*`, `CHANGELOG*`, `CONTRIBUTING*`, `docs/`, `.github/`), skips the advisors listed in `docs_only_skip_advisors` (default `cso` and `qa-lead`). The remaining advisors (e.g. `cto`) still run, and the binary gate (`gate2.binary_gate`) is never affected.
+
+A diff that touches even one non-doc file disqualifies docs-only treatment — there is no partial skip. The `commands/*.md` files in this repo are markdown-as-code and are intentionally **not** in the default pattern list.
+
+Persistent equivalent: set `gate2.diff_scope_skip.enabled: true` in config.
+
+### `--with-plan` — generate an implementation plan after gate1 (`/start`)
+
+`/gh-issue-driven:start <issue> --with-plan` invokes `superpowers:writing-plans` after the gate1 verdict and before branch creation. The plan markdown is captured from the conversation and persisted to `~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md`; the state file's `plan.path` points to it.
+
+Requires the `superpowers` plugin. Without it, `/start` logs a warning and continues without a plan (no abort).
+
+The plan is **produced in-line** as part of the `/start` conversation — the same execution model as `/claude-c-suite:ask` and `/kagura-memory:session-start`. There is no autonomous sub-process.
+
+### `--parallel` — implementation via subagent dispatch (`/start`)
+
+`/gh-issue-driven:start <issue> --with-plan --parallel` chains `superpowers:subagent-driven-development` after plan generation: step 18's continue target is set to invoke subagent dispatch on the plan content, rather than launching `/feature-dev:feature-dev` or drafting an implementation outline in the conversation.
+
+`--parallel` requires `--with-plan` (the subagent skill consumes a plan as its input). Setting `--parallel` alone is rejected with an error so the workflow stays explicit.
+
+### When NOT to use these flags
+
+- **`auto-size` + complex issue**: if you set `auto-size` globally and the heuristic misclassifies a complex issue as small, gate1 is skipped without ceremony. The HITL gate is your safety net — override the skip and re-run if needed.
+- **`auto-skip` + security-sensitive docs**: if your `docs/` directory contains published threat models or anything that warrants security review on edit, keep the default `false` and re-add `cso` manually for those PRs.
+- **`--parallel` for trivial changes**: subagent dispatch has its own setup cost. For one-file fixes, the in-conversation continue target ("draft a plan now") is cheaper.
+
+---
+
 ## Copilot review loop
 
 After `gh pr create`, `/gh-issue-driven:ship` fires the reviewer add and pauses at a **HITL confirmation gate** (since v0.3.0) before entering the polling loop:

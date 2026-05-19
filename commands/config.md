@@ -98,6 +98,40 @@ To trust a fork, change the URL: `"claude-c-suite": "https://github.com/yourfork
 
 **CI use**: run `doctor verbose` and `grep '^PLUGIN_CHECK'` to parse machine-readable `key=value` lines. Fail on `status=unexpected` to enforce origin pinning in CI.
 
+### `gate1.size_heuristic`
+
+Opt-in mechanism that lets `/gh-issue-driven:start` skip the gate1 cascade entirely for issues that match a "small issue" heuristic. Default is **off** for backward compatibility — when disabled, `/start` runs gate1 (`/claude-c-suite:ask` → optional `/ceo` escalation) on every issue, exactly as in v0.8.0.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Master switch. When `true`, the heuristic runs in `/start` step 7a. The CLI flag `auto-size` is the per-invocation equivalent. |
+| `small_labels` | `["good first issue", "documentation", "docs", "tests", "i18n"]` | Case-insensitive label list. If the primary issue has any label in this list, the issue is small. |
+| `small_body_max_chars` | `500` | If the primary issue body is shorter than this, the issue is small. |
+
+**Trigger logic**: an issue is small when **either** signal fires — label match OR short body. Both proxies capture the same "implementer can act without design review" intuition; the OR captures both labeled triage signals and short-body brevity signals.
+
+**Effect when small**: gate1 (`/claude-c-suite:ask`, optional `/ceo` escalation) is **not** invoked. `GATE1_REVIEWER` is set to the sentinel `"size-heuristic"`, `GATE1_VERDICT` to `green`, and the gate1 markdown captures a synthetic "skipped by policy" record. The HITL gate (`gate1.green_continue_requires_confirm`) still fires so the operator can override the size-heuristic decision by selecting "I have feedback".
+
+**Batch mode**: `IS_BATCH=true` invocations are **never** small. Bundling multiple issues is itself a coherence signal that warrants gate1 review.
+
+**Token savings**: the saved cost is one `/claude-c-suite:ask` invocation per matching issue (plus the rarer `/ceo` escalation when the verdict is decline). For a docs-only typo fix, this is the dominant cost in `/start` — order-of-magnitude reduction is realistic.
+
+### `gate2.diff_scope_skip`
+
+Opt-in mechanism that lets `/gh-issue-driven:ship` skip irrelevant gate2 advisors based on the changed-file scope. Default is **off** for backward compatibility — when disabled, `/ship` runs every advisor in `gate2.advisors`, exactly as in v0.8.0.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Master switch. When `true`, ship.md step 4a probes the diff and may filter `ADVISORS`. The CLI flag `auto-skip` is the per-invocation equivalent. |
+| `docs_only_patterns` | `["^README", "^CHANGELOG", "^CONTRIBUTING", "^docs/", "^\\.github/"]` | Regex list. A diff is **docs-only** when **every** changed file matches at least one pattern. |
+| `docs_only_skip_advisors` | `["/claude-c-suite:cso", "/claude-c-suite:qa-lead"]` | Advisors skipped when the diff is docs-only. The remaining advisors (e.g. `cto`) still run. |
+
+**Important**: this plugin's `commands/*.md` files are markdown-as-code (the runtime spec) — they are intentionally **not** in the default `docs_only_patterns`. Editing `commands/start.md` is a behavioral change, not docs. If you customize the patterns, keep this invariant.
+
+**Effect when docs-only**: the matched advisors are excluded from the parallel battery in ship.md step 6. The binary gate (`gate2.binary_gate`) is never affected — it has its own opt-in via the `binary_gate` key. `SKIPPED_ADVISORS` is recorded in the gate2 state block (`gate2.skipped_advisors`) so `/gh-issue-driven:status` can surface what was skipped and why.
+
+**When NOT to enable**: if your repo treats `docs/` as security-sensitive (e.g. published threat models, secret-management docs that could leak credentials when edited), keep the default `false`. Skipping `cso` is appropriate only when docs changes carry no security review obligation.
+
 ### `memory.context_id`
 
 Accepts three forms — in priority order of recommendation:
@@ -167,7 +201,12 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "primary": "/claude-c-suite:ask",
     "fallback": "/claude-c-suite:ceo",
     "yellow_continue_requires_confirm": true,
-    "green_continue_requires_confirm": true
+    "green_continue_requires_confirm": true,
+    "size_heuristic": {
+      "enabled": false,
+      "small_labels": ["good first issue", "documentation", "docs", "tests", "i18n"],
+      "small_body_max_chars": 500
+    }
   },
   "gate2": {
     "binary_gate": null,
@@ -178,7 +217,12 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     ],
     "yellow_continue_requires_confirm": true,
     "green_continue_requires_confirm": true,
-    "run_tests_before_gate2": false
+    "run_tests_before_gate2": false,
+    "diff_scope_skip": {
+      "enabled": false,
+      "docs_only_patterns": ["^README", "^CHANGELOG", "^CONTRIBUTING", "^docs/", "^\\.github/"],
+      "docs_only_skip_advisors": ["/claude-c-suite:cso", "/claude-c-suite:qa-lead"]
+    }
   },
   "review": {
     "provider": "copilot"

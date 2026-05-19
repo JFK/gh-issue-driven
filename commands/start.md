@@ -5,7 +5,7 @@ arguments:
     description: "One or more GitHub issue identifiers (number, full URL, or owner/repo#number). Multiple IDs create a batch branch. Required (at least one)."
     required: true
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--worktree' (create an isolated git worktree at .worktrees/<branch> instead of checking out in-place — delegates to superpowers:using-git-worktrees when installed), '--branch=<name>' (override the derived branch name; combines with --worktree to place the worktree at .worktrees/<override-branch-name>)."
+    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--worktree' (create an isolated git worktree at .worktrees/<branch> instead of checking out in-place — delegates to superpowers:using-git-worktrees when installed), '--branch=<name>' (override the derived branch name; combines with --worktree to place the worktree at .worktrees/<override-branch-name>), 'auto-size' (skip gate1 entirely for issues that match the small-issue heuristic — see `gate1.size_heuristic` config), '--with-plan' (after gate1 verdict and before branch creation, invoke superpowers:writing-plans to generate an implementation plan persisted to the state file), '--parallel' (after the plan is generated, set the step 18 continue target to superpowers:subagent-driven-development for plan-driven parallel implementation; requires --with-plan)."
     required: false
 ---
 
@@ -55,7 +55,7 @@ Iterate over `$ARGUMENTS` tokens left-to-right. Each token is classified by **po
   - URL form: `^https://github\.com/.+/.+/issues/[0-9]+$`
   - Short form: `^[^/]+/[^#]+#[0-9]+$`
 - **`--branch=<name>` flag** — matches `^--branch=.+$`. Extract the value after `=` as `BRANCH_OVERRIDE`.
-- **Known flag** — one of: `dry-run`, `force`, `no-memory`, `--worktree`
+- **Known flag** — one of: `dry-run`, `force`, `no-memory`, `--worktree`, `auto-size`, `--with-plan`, `--parallel`
 - **Unknown** — reject with a clear error listing valid flags and the multi-issue syntax.
 
 All leading tokens that match the issue identifier pattern are collected into the `ISSUE_IDS` list (preserving order). The first token that does NOT match an issue identifier pattern marks the boundary — all remaining tokens are parsed as flags.
@@ -80,7 +80,16 @@ Set booleans from flag tokens:
   - `FORCE=true` if `force` is present
   - `NO_MEMORY=true` if `no-memory` is present
   - `WORKTREE=true` if `--worktree` is present (default: `false`)
+  - `AUTO_SIZE=true` if `auto-size` is present (default: `false`)
+  - `WITH_PLAN=true` if `--with-plan` is present (default: `false`)
+  - `PARALLEL=true` if `--parallel` is present (default: `false`)
   - `BRANCH_OVERRIDE` from `--branch=<value>` if present (default: `null`)
+
+Flag interaction rules (validated here, before any downstream step reads them):
+
+- `--parallel` requires `--with-plan`. If `PARALLEL=true` and `WITH_PLAN=false`, abort with `error: --parallel requires --with-plan (subagent-driven-development consumes a plan as its input)`. Auto-enabling `--with-plan` was considered and rejected — operators who set `--parallel` without `--with-plan` likely misunderstand the workflow, and silently enabling another flag would mask that.
+- `auto-size` is per-invocation and overrides `gate1.size_heuristic.enabled` to `true` for this run only. The config key is the persistent equivalent; the flag is the one-off opt-in.
+- `auto-size` and `dry-run` compose normally — when both are set, the size heuristic runs and may short-circuit gate1, but no branch is created.
 
 #### 1a. Validate parsed arguments against allow-list
 
@@ -397,7 +406,47 @@ Capture results as a list of `{summary, score}` pairs.
 
 The skip path at the top of this step already covered the "context_id couldn't be resolved" case (steps 2a/2b set `null` and step 7 skips entirely without calling recall), so by the time the recall call runs, `context_id` is a valid UUID. Any runtime error here is a true network/server issue, not a configuration problem — and the user's `skip_on_failure` choice is the right signal for how to handle it.
 
+### 7a. Issue-size heuristic (optional gate1 short-circuit)
+
+This sub-step runs only when **either** `AUTO_SIZE` (CLI flag) is true OR `gate1.size_heuristic.enabled` in the effective config is `true`. Otherwise skip entirely — set `SIZE_HEURISTIC_SKIPPED=false` and proceed to step 8 normally.
+
+When enabled, classify the **primary issue** (`PRIMARY_ISSUE`, set in step 5) as `small` or `not_small`. Batch mode (`IS_BATCH=true`) is **never** small — bundling multiple issues is a coherence signal that warrants gate1 review. In batch mode, set `SIZE_HEURISTIC_SKIPPED=false` and proceed to step 8.
+
+For single-issue mode, read config:
+- `SMALL_LABELS = gate1.size_heuristic.small_labels` (default `["good first issue", "documentation", "docs", "tests", "i18n"]`)
+- `SMALL_BODY_MAX = gate1.size_heuristic.small_body_max_chars` (default `500`)
+
+Both signals are checked. The issue is **small** when **either**:
+- Any label name (case-insensitive) is in `SMALL_LABELS`, OR
+- `len(PRIMARY_ISSUE.body)` is less than `SMALL_BODY_MAX`
+
+The OR (not AND) is intentional: a labeled "good first issue" with a longer body is still small; a short body without a small label is still small. Both signals capture the same "implementer can act without deep design input" intuition through different proxies.
+
+When the issue is **small**:
+
+- Set `SIZE_HEURISTIC_SKIPPED=true`
+- Set `GATE1_VERDICT="green"` (the structural verdict — the issue is treated as design-approved by policy, not by reviewer)
+- Set `GATE1_REVIEWER="size-heuristic"` (a sentinel value distinct from `ask`/`ceo`; readers must accept it as a valid `gate1.reviewer` value going forward)
+- Set `GATE1_ESCALATED_TO=null`
+- Set `GATE1_OUTPUT` to a one-paragraph synthetic markdown describing why the skip fired:
+  ```
+  Gate1 was skipped by the issue-size heuristic (gate1.size_heuristic).
+  Trigger: <labels matched: [...]>, body length <N> chars (<= <SMALL_BODY_MAX>).
+  No design review was performed. The implementer is responsible for surfacing
+  any design risks during implementation or in the PR description.
+  ```
+- Set `GATE1_KEY_SUGGESTIONS=[]` (no suggestions to surface)
+- Log one line: `gate1.size_heuristic: small issue (labels=[...], body=<N> chars); skipping gate1 cascade`
+
+Then **skip steps 8 through 11 entirely** and proceed to step 11a's HITL flow. The HITL gate still fires (when `green_continue_requires_confirm=true`) so the operator sees the size-heuristic decision and can override it by selecting "I have feedback" → ask to re-run with the cascade.
+
+When the issue is **not small**: set `SIZE_HEURISTIC_SKIPPED=false` and proceed to step 8.
+
+This sub-step is the only entry point for `GATE1_REVIEWER="size-heuristic"`. The value is written to the state file via the normal `gate1` block in step 14; no schema change is required.
+
 ### 8. Build the gate1 prompt block
+
+**Skip steps 8 through 11 entirely when `SIZE_HEURISTIC_SKIPPED=true`** (set in step 7a) — `GATE1_OUTPUT`, `GATE1_REVIEWER`, `GATE1_VERDICT`, and `GATE1_KEY_SUGGESTIONS` are already populated. Proceed directly to step 11a.
 
 #### 8a. Sanitize external text
 
@@ -598,9 +647,44 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 ### 12. Verdict handling
 
-- **green** → continue silently to step 13. (HITL was presented in step 11a if `gate1.green_continue_requires_confirm` is `true`.)
+- **green** → continue silently to step 12a (or directly to step 13 if `WITH_PLAN=false`). (HITL was presented in step 11a if `gate1.green_continue_requires_confirm` is `true`.)
 - **yellow** → print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
 - **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns".
+
+### 12a. Generate the implementation plan (optional, `--with-plan`)
+
+Skip this step entirely when `WITH_PLAN=false`. Skip also when `DRY_RUN=true` — there is no branch to associate the plan with, and persisting a plan without a branch creates orphan state.
+
+When `WITH_PLAN=true` and not `DRY_RUN`:
+
+> **Invoke the `/superpowers:writing-plans` skill via the Skill tool**, passing this prompt block as input. Wait for the full markdown response before continuing.
+
+```
+# Implementation plan — issue #<primary_issue_number>
+
+## Issue
+<title>
+<url>
+
+## Gate1 outcome
+Verdict: <GATE1_VERDICT> (via <GATE1_REVIEWER>[, escalated to <GATE1_ESCALATED_TO>])
+
+## Gate1 key suggestions
+<if GATE1_KEY_SUGGESTIONS non-empty, render as a bulleted list — translate each item from English back to the operator's lang if needed for the planning conversation>
+
+## Your task
+Produce an implementation plan that addresses the issue's acceptance criteria
+and incorporates the gate1 suggestions above. Follow the writing-plans skill
+conventions verbatim. The plan you produce in this conversation will be
+captured by the parent /start command and persisted to the start state file
+in step 14 — your output IS the durable artifact.
+```
+
+**Execution model — this is non-obvious and easy to misread**: the Skill tool injects the `writing-plans` skill body into Claude's context. Claude (the same conversation that is executing `/start`) then produces the plan **in-line** as the writing-plans-instructed role. There is no autonomous sub-process. After the skill returns and the plan content appears in the conversation, **the parent `/start` command captures the plan content** and writes it to disk in step 14.5 (after branch creation and state file write, before the recap). This is the same in-line execution model that `/claude-c-suite:ask` and `/kagura-memory:session-start` use elsewhere in this command.
+
+The "capture" mechanism is straightforward: the writing-plans skill produces a markdown document as its final output. The parent reads that document from the conversation history and persists it verbatim. No structured-extraction step is required.
+
+Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If the skill is not installed, log a loud warning `--with-plan requested but /superpowers:writing-plans not installed; continuing without a plan` and proceed to step 13 with `PLAN_OUTPUT=null`. Do not abort — the operator can re-run the planning skill later if needed.
 
 ### 13. Create the feature branch
 
@@ -752,6 +836,7 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
     "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate1.md",
     "ran_at": "<UTC ISO-8601>"
   },
+  "plan": <plan block or null>,
   "gate2": null,
   "pr": null,
   "copilot": null,
@@ -759,20 +844,42 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
 }
 ```
 
+The `plan` block has this shape when `WITH_PLAN=true` and the plan was produced successfully:
+
+```json
+"plan": {
+  "path": "~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md",
+  "generator": "/superpowers:writing-plans",
+  "generated_at": "<UTC ISO-8601>"
+}
+```
+
+Otherwise `plan` is JSON `null`. The plan markdown itself is written in step 14.5 (below) — this state field is just a pointer.
+
 Schema notes:
 - **`issues` array**: contains all issues in input order. Each entry has `number`, `title`, `url`, and `labels`.
 - **`issue_number`, `issue_title`, `issue_url`**: v1-compatible aliases pointing to `issues[0]` (the primary issue). These fields ensure that `ship.md`, `status.md`, and any v1-era state readers continue to work without modification until they adopt the `issues` array.
 - **`is_batch`**: `true` when `len(issues) > 1`, `false` otherwise. Allows downstream commands to branch on batch mode without counting the array.
 - **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). Serialized as a JSON string when populated, or the unquoted JSON literal `null` when `--worktree` was not used — matching the convention of other nullable fields like `gate1.escalated_to`. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
-- **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`.
+- **`plan`**: set when `--with-plan` was used and the writing-plans skill produced output (step 14.5). Serialized as a JSON object `{path, generator, generated_at}` when populated, or the unquoted JSON literal `null` otherwise. Schema-additive — readers that do not yet know about `plan` ignore it without error.
+- **`gate1.reviewer`** accepts a new sentinel value `"size-heuristic"` (added with `gate1.size_heuristic`) in addition to the existing `"ask"` / `"ceo"`. Readers should treat unknown reviewer values as opaque labels (display verbatim) rather than rejecting them — future heuristics or third-party gate1 implementations may introduce additional sentinels.
+- **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path` / `plan`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`; absent `plan` is equivalent to `null`.
 
 `<branch-flat>` is the branch name with `/` replaced by `-` so it works as a filename.
 
 If `DRY_RUN`, do not write the state file (so `/gh-issue-driven:status` won't see a phantom entry).
 
+### 14.5. Persist the implementation plan (only when `WITH_PLAN=true`)
+
+Skip when `WITH_PLAN=false`, when `DRY_RUN=true`, or when `PLAN_OUTPUT` is null (the writing-plans skill was unavailable or returned nothing usable). In those cases the state file's `plan` field is `null` and there is no markdown to write.
+
+Otherwise, write `PLAN_OUTPUT` verbatim to `~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md` using a temp file + atomic mv. Use the same `chmod 0700`-protected cache directory established in step 14. The path matches the `plan.path` field in the state file written in step 14.
+
 ### 15. Save the gate1 markdown
 
 Write `GATE1_OUTPUT` verbatim to `~/.claude/cache/gh-issue-driven/<branch-flat>.gate1.md` (this is plugin cache, allowed). Skip in `DRY_RUN`.
+
+When `SIZE_HEURISTIC_SKIPPED=true`, the `GATE1_OUTPUT` value is the synthetic "skipped" markdown from step 7a — write it as-is so post-hoc readers (`/gh-issue-driven:status`, audit trails) see exactly what was recorded as the gate1 decision.
 
 ### 16. Print the recap
 
@@ -789,6 +896,10 @@ Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])
+        — or — skipped (size-heuristic: <reason>)   ← when SIZE_HEURISTIC_SKIPPED
+<if WITH_PLAN=true AND PLAN_OUTPUT non-null:>
+Plan    <~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md>  (via /superpowers:writing-plans)
+</if>
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
@@ -879,9 +990,10 @@ If `GATE1_VERDICT` is `unknown` (reviewer skills missing), step 18 still fires �
 
 #### 18b. Pick the "continue" target
 
-Determine what the **continue** option will actually do, based on skill detection from step 17b and on `IS_BATCH`:
+Determine what the **continue** option will actually do, based on flags, skill detection from step 17b, and `IS_BATCH`:
 
-- If `IS_BATCH` is true → continue target is **"draft a per-issue implementation plan in this conversation"**. Do **not** auto-launch `/feature-dev` for batch mode (it is single-feature oriented).
+- If `PARALLEL=true` (the operator opted in via `--parallel`) AND `PLAN_OUTPUT` is non-null (the writing-plans step produced a usable plan) → continue target is **"invoke `/superpowers:subagent-driven-development` via the Skill tool, passing the plan from step 12a as its input"**. This branch is only reachable when `WITH_PLAN=true` as well (step 1's interaction rules guarantee it). If the `/superpowers:subagent-driven-development` skill is not installed OR `PLAN_OUTPUT` is null (writing-plans skill was unavailable or returned nothing usable), fall through to the next applicable branch and log a one-line warning naming the reason.
+- Else if `IS_BATCH` is true → continue target is **"draft a per-issue implementation plan in this conversation"**. Do **not** auto-launch `/feature-dev` for batch mode (it is single-feature oriented).
 - Else if `/feature-dev:feature-dev` was detected in step 17b → continue target is **"invoke `/feature-dev:feature-dev` via the Skill tool"**.
 - Else → continue target is **"draft an implementation plan in this conversation, grounded in the issue body and gate1 suggestions"**.
 
@@ -926,7 +1038,7 @@ Invoke the AskUserQuestion tool with this question and these three **fixed** opt
 #### 18e. Handle the response
 
 - **Stop here** → print a one-line acknowledgement (`OK — returning to prompt. Run /gh-issue-driven:ship when implementation is ready.`) and stop. Equivalent to the legacy behavior.
-- **Continue (option 2)** → print a one-line acknowledgement naming the action, then immediately perform `CONTINUE_TARGET_ACTION`. For the `/feature-dev` case this means invoking the `/feature-dev:feature-dev` skill via the Skill tool. For the "draft a plan" case, begin a normal conversational turn that summarizes the issue, lists the gate1 key suggestions extracted in step 17a, and proposes a concrete implementation outline grounded in files you have read or will read.
+- **Continue (option 2)** → print a one-line acknowledgement naming the action, then immediately perform `CONTINUE_TARGET_ACTION`. For the `--parallel` case, this means invoking the `/superpowers:subagent-driven-development` skill via the Skill tool with the plan content (from step 14.5's `plan.path`) as its working input. For the `/feature-dev` case this means invoking the `/feature-dev:feature-dev` skill via the Skill tool. For the "draft a plan" case, begin a normal conversational turn that summarizes the issue, lists the gate1 key suggestions extracted in step 17a, and proposes a concrete implementation outline grounded in files you have read or will read.
 - **Feedback / different direction (option 3)** → print a one-line acknowledgement that invites the operator to type their note, e.g. `Got it — what would you like to change or discuss?`. Then **stop and wait** for the operator's next message. When that next message arrives, treat it as the feedback and respond to it conversationally. Do **not** invoke any skill. Do not assume the feedback overrides gate1 — if it implies a design change large enough to invalidate gate1, say so explicitly and suggest re-running `/gh-issue-driven:start` once the new direction is settled.
 
 After step 18 completes (regardless of which branch), `/start` is done. The state file written in step 14 is the source of truth for `/ship` and `/status`; step 18's choice is **not** persisted (it only affects the in-conversation flow).

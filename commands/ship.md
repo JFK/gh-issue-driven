@@ -2,7 +2,7 @@
 description: Phase 2 of gh-issue-driven — runs gate2 (audit + cso + qa-lead + cto in parallel), creates the PR, drives a Copilot review loop up to 5 iterations, and saves session knowledge to Kagura Memory.
 arguments:
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR)."
+    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR), 'auto-skip' (skip gate2 advisors that don't apply to the diff scope — see `gate2.diff_scope_skip` config)."
     required: false
 ---
 
@@ -126,7 +126,9 @@ This ensures all downstream steps can use `state.issues` uniformly regardless of
 
 ### 2. Load configuration and parse flags
 
-Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT`, `RESUME` booleans. Reject unknown flags.
+Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT`, `RESUME`, `AUTO_SKIP` booleans. Reject unknown flags.
+
+`AUTO_SKIP` opts in to gate2 diff-scope skipping for this invocation only. The config key `gate2.diff_scope_skip.enabled` (default `false`) is the persistent equivalent; the flag overrides the config to `true` for one run. Backward-compat: when neither the flag nor the config enables it, gate2 behavior is byte-identical to v0.8.0.
 
 Determine `REVIEW_PROVIDER` as follows: if the **user config** explicitly sets `review.provider`, use that value. Otherwise, for backward compatibility with v0.1.x configs, check legacy `copilot.enabled`: if the user config explicitly sets `copilot.enabled` to `false`, set `REVIEW_PROVIDER="none"`; otherwise default to `"copilot"`. Valid values: `copilot`, `code-review`, `both`, `none`. If `NO_COPILOT` is set, override `REVIEW_PROVIDER` to `"none"` for this invocation (backward compatibility).
 
@@ -184,6 +186,56 @@ If tests fail, abort gate2 with the failure output.
 
 Default is **off** — gate2 is reviews, not test execution.
 
+### 4a. Compute diff scope and optionally filter advisors
+
+This sub-step runs only when **either** `AUTO_SKIP` is true OR `gate2.diff_scope_skip.enabled` in the effective config is `true`. Otherwise skip entirely — `SKIPPED_ADVISORS=[]` and the full `ADVISORS` list from config is used in step 6 as before.
+
+When enabled, derive `CHANGED_FILES` from the diff:
+
+```bash
+git diff --name-only "origin/$DEFAULT_BRANCH...HEAD" > /tmp/gh-issue-driven.changed-files
+```
+
+Read the config patterns:
+- `DOCS_PATTERNS = gate2.diff_scope_skip.docs_only_patterns` (default `["^README", "^CHANGELOG", "^CONTRIBUTING", "^docs/", "^\\.github/"]`)
+- `DOCS_SKIP_ADVISORS = gate2.diff_scope_skip.docs_only_skip_advisors` (default `["/claude-c-suite:cso", "/claude-c-suite:qa-lead"]`)
+
+Classification rule: a diff is **docs-only** when **every** path in `CHANGED_FILES` matches at least one pattern in `DOCS_PATTERNS`. A single non-matching path disqualifies the diff from docs-only treatment — there is no partial skip.
+
+The pattern set is intentionally narrow. Spec/command files under `commands/*.md`, `references/*.md`, or `tests/` are **not** docs-only in this plugin: those are markdown-as-code (`commands/*.md` IS the runtime spec). The defaults reflect this.
+
+```bash
+DOCS_ONLY=true
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  match=false
+  for pat in "${DOCS_PATTERNS[@]}"; do
+    if echo "$f" | grep -qE "$pat"; then
+      match=true
+      break
+    fi
+  done
+  if [ "$match" = "false" ]; then
+    DOCS_ONLY=false
+    break
+  fi
+done < /tmp/gh-issue-driven.changed-files
+```
+
+If `DOCS_ONLY=true`: set `SKIPPED_ADVISORS = DOCS_SKIP_ADVISORS` and filter the in-session `ADVISORS` list (read from config in step 6) to exclude every entry in `SKIPPED_ADVISORS`. Log a single one-line note:
+
+```
+gate2.diff_scope_skip: docs-only diff detected (<N> files all match patterns); skipping advisors <comma-separated>
+```
+
+If `DOCS_ONLY=false`: set `SKIPPED_ADVISORS=[]`. No advisors are filtered. Log:
+
+```
+gate2.diff_scope_skip: diff is not docs-only (<N> changed files); running full advisor list
+```
+
+`SKIPPED_ADVISORS` is recorded in the state file (step 9) so the recap and PR body can surface what was skipped and why. The binary gate (`gate2.binary_gate`) is **never** skipped by this mechanism — only advisors. Binary gate skipping is governed by `gate2.binary_gate=null` (see config.md).
+
 ### 5. Build the gate2 prompt block
 
 Construct one shared block all four reviewers will receive:
@@ -220,7 +272,7 @@ the last `## Verdict:` line is what counts.
 
 Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
 
-First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
+First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). **If step 4a filtered `ADVISORS` (because `AUTO_SKIP` or `gate2.diff_scope_skip.enabled` matched a docs-only diff), use the post-filter list — `SKIPPED_ADVISORS` entries are NOT invoked.** Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
 
 **If `gate2.binary_gate` is `null`** (the v0.1.1 default — see config.md `gate2.binary_gate` notes for the rationale): gate2 runs in **advisor-only mode**. Skip the binary gate slot entirely. Set `AUDIT_OUT = null` (will become `AUDIT_VERDICT = "skipped"` in step 7). Invoke ONLY the advisors from `ADVISORS`:
 
@@ -368,12 +420,16 @@ Update the state file:
     "<full_config_string>": "<green|yellow|red|unknown>",
     "<full_config_string>": "<green|yellow|red|unknown>"
   },
+  "skipped_advisors": ["<full_config_string>", ...],
+  "diff_scope": "docs-only | mixed | null",
   "verdict": "<aggregate>",
   "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md",
   "ran_at": "<UTC ISO-8601>"
 },
 "phase": "gated"
 ```
+
+`skipped_advisors` is the list set by step 4a (empty `[]` when the diff-scope skip mechanism was disabled or did not match; the configured `docs_only_skip_advisors` list when it did match). `diff_scope` records which classification 4a produced (`"docs-only"` when all changed paths matched docs patterns, `"mixed"` when at least one did not, `null` when the step was skipped entirely because diff-scope skipping was not enabled). Both fields are read by `/gh-issue-driven:status` to render an accurate gate2 summary post-hoc.
 
 The `advisor_verdicts` map is keyed by the **full config string** (e.g. `"/claude-c-suite:cso"`, `"/claude-c-suite:qa-lead"`, `"/claude-c-suite:cto"` for the default config; any custom advisor strings for non-default configs). Using the full config string avoids key collisions between advisors from different namespaces. This replaces the v1 schema's hardcoded `cso`/`qa_lead`/`cto` fields.
 
