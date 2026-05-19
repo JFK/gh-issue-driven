@@ -210,6 +210,48 @@ git worktree prune   # 古い登録情報の掃除
 
 ---
 
+## Token 効率化フラグ (`auto-size`, `auto-skip`, `--with-plan`, `--parallel`)
+
+`/start` と `/ship` には、作業の実態に応じて cascade を軽量化する opt-in フラグがあります。フラグ未指定時の挙動は v0.8.0 と byte-identical です。
+
+### `auto-size` — small issue で gate1 を完全スキップ (`/start`)
+
+`/gh-issue-driven:start <issue> auto-size` で **issue-size heuristic** を起動。primary issue のラベルが `gate1.size_heuristic.small_labels` (デフォルト: `good first issue`, `documentation`, `docs`, `tests`, `i18n`) に一致するか、本文が `small_body_max_chars` (デフォルト 500 字) 未満なら、gate1 は **完全にスキップ** されます。`/claude-c-suite:ask` も `/ceo` 昇格も走りません。state file には `gate1.reviewer="size-heuristic"` と synthetic verdict markdown が記録されます。
+
+HITL 確認ゲートは引き続き発火するので、「I have feedback」でスキップを上書き可能。batch invocation (`/start 4 5 6`) は決して small 扱いされません — bundling 自体が coherence signal だからです。
+
+毎回 `/start` でデフォルト ON にしたい場合は `~/.claude/gh-issue-driven-config.json` の `gate1.size_heuristic.enabled: true` に設定。
+
+### `auto-skip` — 関係ない gate2 advisor をスキップ (`/ship`)
+
+`/gh-issue-driven:ship auto-skip` は diff を調べ、変更ファイル**すべて**が `gate2.diff_scope_skip.docs_only_patterns` (デフォルト `README*` / `CHANGELOG*` / `CONTRIBUTING*` / `docs/` / `.github/`) に一致したら、`docs_only_skip_advisors` (デフォルト `cso` と `qa-lead`) をスキップします。残りの advisor (例: `cto`) は走り、binary gate (`gate2.binary_gate`) は影響を受けません。
+
+1ファイルでも非doc 変更があれば docs-only 判定は不成立 — partial skip はありません。このリポジトリの `commands/*.md` は markdown-as-code (実行 spec) なので、意図的にデフォルトパターンから除外されています。
+
+永続化設定は `gate2.diff_scope_skip.enabled: true`。
+
+### `--with-plan` — gate1 後に実装プランを生成 (`/start`)
+
+`/gh-issue-driven:start <issue> --with-plan` で、gate1 verdict 後・branch 作成前に `superpowers:writing-plans` を起動。plan markdown は会話から取得され、`~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md` に永続化、state file の `plan.path` が pointer になります。
+
+`superpowers` プラグインが必要。未インストール時は warning を出して plan なしで継続 (abort しません)。
+
+plan は `/start` 会話の **in-line で生成** されます — `/claude-c-suite:ask` や `/kagura-memory:session-start` と同じ実行モデルで、autonomous な sub-process は存在しません。
+
+### `--parallel` — subagent dispatch で実装 (`/start`)
+
+`/gh-issue-driven:start <issue> --with-plan --parallel` で plan 生成後に `superpowers:subagent-driven-development` をチェーン: step 18 の continue target が「plan を入力として subagent dispatch を起動」になります (`/feature-dev:feature-dev` 起動や conversation 内 plan 起案の代わり)。
+
+`--parallel` は `--with-plan` を要求します (subagent skill は plan を input として消費する仕様)。`--parallel` 単独は明示エラーで弾きます。
+
+### こんなときは使わない
+
+- **`auto-size` + 複雑 issue**: グローバルに `auto-size` を ON にして heuristic が複雑 issue を small と誤判定した場合、gate1 はそのままスキップされます。HITL gate が safety net なので、override して再実行可能。
+- **`auto-skip` + security-sensitive docs**: `docs/` に脅威モデルなど security review 必須の文書がある場合は default `false` のまま、必要 PR で `cso` を手動で追加。
+- **`--parallel` + 些細な変更**: subagent dispatch には setup コストがあります。1ファイルの fix なら conversation 内 continue target (「plan を起案」) の方が安価。
+
+---
+
 ## Copilot レビューループ
 
 `gh pr create` の後、`/gh-issue-driven:ship` はレビュアの add を発火し、polling loop に入る前に **HITL 確認ゲート** で立ち止まります(v0.3.0 以降):

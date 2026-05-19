@@ -361,13 +361,13 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
      ```
      (Available from the Claude Code official marketplace — no marketplace add needed.)
 
-11. **Worktree plugin: `superpowers`** (optional — enhances `/gh-issue-driven:start --worktree` with smart directory selection)
-   - Probe via plugin cache glob: `~/.claude/plugins/cache/superpowers*`. `start.md` step 13b uses the **identical glob probe** (`ls -d ~/.claude/plugins/cache/superpowers*`) so the two commands answer "is superpowers installed?" the same way — they MUST NOT drift. When changing the glob here, update `commands/start.md` step 13b in the same commit.
+11. **Worktree plugin: `superpowers`** (optional — enhances `/gh-issue-driven:start --worktree`, `--with-plan`, and `--parallel` with smart directory selection, plan generation, and subagent-driven implementation respectively)
+   - Probe via plugin cache glob: `~/.claude/plugins/cache/superpowers*`. `start.md` step 13b uses the **identical glob probe** (`ls -d ~/.claude/plugins/cache/superpowers*`) so the two commands answer "is superpowers installed?" the same way — they MUST NOT drift. When changing the glob here, update `commands/start.md` step 13b in the same commit. Steps 12a (`--with-plan` → `/superpowers:writing-plans`) and 18b (`--parallel` → `/superpowers:subagent-driven-development`) rely on the same plugin; this single probe answers for all three flags.
    - Run the Plugin Metadata Resolution Procedure with:
      - `PMRP_GLOB=superpowers*`
      - `PMRP_SKILL=superpowers`
      - `PMRP_OFFICIAL=false`
-   - If `PLUGIN_FOUND=false`: emit ⚠️  `superpowers: not installed — /gh-issue-driven:start --worktree will fall back to direct git worktree add .worktrees/<branch>, which still works (no hard requirement)`.
+   - If `PLUGIN_FOUND=false`: emit ⚠️  `superpowers: not installed — /gh-issue-driven:start --worktree will fall back to direct git worktree add .worktrees/<branch> (still works); --with-plan and --parallel will degrade with a warning and continue without invoking the missing skills`.
    - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append a 2-line `try:` block:
      ```

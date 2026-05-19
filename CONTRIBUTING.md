@@ -71,6 +71,33 @@ The reviewer skills (`/claude-c-suite:*`, `/claude-phd-panel:*`) are advisory by
 
 If you maintain a c-suite or phd-panel skill, **adding the Verdict line is the single highest-leverage change** for `gh-issue-driven` integration.
 
+## Measuring token consumption (`rtk gain`)
+
+The token-efficiency flags (`auto-size`, `auto-skip`, `--with-plan`, `--parallel` — see [README](README.md#token-efficient-flags-auto-size-auto-skip---with-plan---parallel)) ship with a measurement obligation: each PR that touches them must capture before/after `rtk gain` numbers in the PR description. The procedure below makes the comparison reproducible.
+
+### Fixture-based measurement
+
+A fixed scenario is required so two runs are comparable. The repo ships one at `tests/fixtures/typo-fix-issue.md` — a representative "small issue" body that exercises the docs-only / auto-size paths. Add new fixtures for other scenarios as needed.
+
+### Procedure
+
+1. **Baseline** — checkout the version to compare against (e.g. `git checkout v0.8.0`), run `rtk gain` once to record the current totals, then invoke `/gh-issue-driven:start` (or `/ship`) against the fixture and capture `rtk gain --history` for the resulting delta. Save the output.
+2. **HEAD** — checkout the PR branch, repeat step 1 with the same fixture.
+3. **Diff table** — in the PR description, paste a table like:
+
+   ```
+   | Scenario | v0.8.0 baseline | PR HEAD | delta |
+   |---|---|---|---|
+   | /start typo-fix-issue --auto-size | <tokens> | <tokens> | -N% |
+   | /ship docs-only-diff --auto-skip  | <tokens> | <tokens> | -N% |
+   ```
+
+The fixture itself is markdown-only, so the measurement is not affected by network latency, model variance, or environment drift beyond what `rtk gain` already accounts for.
+
+### When the measurement is not required
+
+Only the four token-efficiency flags (and their config equivalents) carry this measurement obligation. PRs that don't change cascade gating or skill invocation paths can skip the table — `rtk gain` is for verifying claims about token impact, not a universal PR requirement.
+
 ## Design principles
 
 A few load-bearing principles that shape what gets accepted into `commands/`:
