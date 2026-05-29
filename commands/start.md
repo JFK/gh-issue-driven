@@ -950,10 +950,20 @@ If `GATE1_VERDICT` is `unknown` (reviewer skills not installed), omit this sub-s
 
 #### 17b. Detect available workflow skills
 
-Check the current conversation's system-reminder skill list for the presence of these skills:
+Check the current conversation's system-reminder skill list for the presence of these skills.
 
-- `/feature-dev:feature-dev` — guided feature development (7-phase: discovery → exploration → questions → architecture → implementation → quality review → summary)
-- `/simplify` — built-in Claude Code skill for reviewing changed code
+**Implementation skills** — pick the one that fits the change's size/risk; **avoid overkill** (a trivial change needs none of these — edit directly):
+
+- `/feature-dev:feature-dev` — guided feature development for **moderate** features (7-phase: discovery → exploration → questions → architecture → implementation → quality review → summary)
+- `/superpowers:subagent-driven-development` — execute an implementation plan's independent tasks for **large / plan-driven** work
+- `/superpowers:executing-plans` — execute a written plan with review checkpoints (alternative to the above for large work)
+- `/superpowers:test-driven-development` — test-first cycle, layered in wherever a test-first approach fits
+
+`/feature-dev:feature-dev` is **not** the only implementation skill — choose by scope.
+
+**Review skill** (run before shipping):
+
+- `/code-review` — the Claude Code skill for reviewing the **working-tree diff** before `/ship` (no PR required yet; effort levels low/medium/high/max, `--fix`).
 
 For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills.
 
@@ -961,17 +971,20 @@ For each detected skill, include it in the suggested workflow below. For skills 
 
 ```
 Suggested workflow:
-  1. Implement the change on this branch.
-  2. Run /feature-dev:feature-dev for guided development (optional)      ← only if detected
-  3. Run /simplify to review changed code before shipping.   ← only if detected
-  4. /gh-issue-driven:ship   ← when implementation is ready
+  1. Implement the change on this branch — pick the approach that fits its size/risk (avoid overkill):
+       • Trivial (docs / one-liner / rename) → direct edits, no orchestration skill
+       • Moderate feature → /feature-dev:feature-dev                                   ← only if detected
+       • Large / plan-driven / independent sub-tasks → /superpowers:subagent-driven-development (or /superpowers:executing-plans)   ← only if detected
+       • (cross-cutting) test-first where it fits → /superpowers:test-driven-development  ← only if detected
+  2. Run /code-review to review the working diff before shipping.   ← only if detected
+  3. /gh-issue-driven:ship   ← when implementation is ready
 ```
 
-Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection.
+Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection. Under step 1, list only the size tiers whose skill was detected — the "direct edits" tier is always shown (it needs no skill).
 
 #### 17d. Respect `lang` setting
 
-When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/simplify`, `/ship`) stay as-is (they are command identifiers, not prose).
+When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/superpowers:*`, `/code-review`, `/ship`) stay as-is (they are command identifiers, not prose).
 
 ### 18. HITL: choose next action
 
@@ -1008,7 +1021,7 @@ Include only the bullets that apply:
 - **Gate1 verdict**: re-state `GATE1_VERDICT` plus the reviewer route (e.g. `green via /ask` or `yellow via /ask, escalated to /ceo`). If `unknown`, say so explicitly and note that no design review actually ran.
 - **Top gate1 suggestions**: re-list the (up to 3) key suggestions extracted in step 17a, in the same order. If 17a produced none, omit this bullet — do not fabricate.
 - **Scope shape**: if `IS_BATCH` is true, state how many issues are bundled and remind the operator that option 2 will draft per-issue plans (not auto-launch `/feature-dev`). If single-issue, omit.
-- **Skills available for the continue path**: state only which of `/feature-dev:feature-dev` and `/simplify` were detected in step 17b. Do **not** mention skills that were not detected — this matches step 17b's "omit silently" rule (line 698). The continue target's label (set in 18b) already conveys what option 2 will do, so operators do not need to be told what is missing.
+- **Skills available for the continue path**: state only which of the implementation skills (`/feature-dev:feature-dev`, `/superpowers:subagent-driven-development`, `/superpowers:executing-plans`, `/superpowers:test-driven-development`) and the `/code-review` skill were detected in step 17b. Do **not** mention skills that were not detected — this matches step 17b's "omit silently" rule. The continue target's label (set in 18b) already conveys what option 2 will do, so operators do not need to be told what is missing.
 - **Memory recall signal**: if step 7 produced ≥ 1 related context, include a one-line pointer (`<k> related contexts recalled — see recap above`). If none or skipped, omit.
 - **Caveats**: anything actionable the operator should weigh, **but only if that caveat was explicitly recorded in earlier steps as a flag or variable** — e.g. yellow verdict carried forward (from step 12), `force` flag in effect (from step 0 argument parsing). Do **not** infer caveats from derived values alone — for example, do not claim a branch-name collision just by inspecting `BRANCH`, because no earlier step records a `BRANCH_COLLISION` flag. If a caveat is not explicitly tracked upstream, it does not belong here. Omit the bullet entirely if no flagged caveat applies.
 
@@ -1020,7 +1033,7 @@ Considerations:
   - Top gate1 suggestions:
       • <suggestion 1>
       • <suggestion 2>
-  - Skills available: /feature-dev:feature-dev, /simplify
+  - Skills available: /feature-dev:feature-dev, /superpowers:subagent-driven-development, /code-review
   - Memory: 3 related contexts recalled — see recap above
 ```
 
@@ -1045,7 +1058,7 @@ After step 18 completes (regardless of which branch), `/start` is done. The stat
 
 #### 18f. Respect `lang` setting
 
-When `lang != "en"`, produce the AskUserQuestion question text, all three option labels, and the acknowledgement lines in the language specified by `lang`. Skill names (`/feature-dev`, `/simplify`, `/ship`) remain as-is.
+When `lang != "en"`, produce the AskUserQuestion question text, all three option labels, and the acknowledgement lines in the language specified by `lang`. Skill names (`/feature-dev`, `/superpowers:*`, `/code-review`, `/ship`) remain as-is.
 
 ## Failure modes
 
