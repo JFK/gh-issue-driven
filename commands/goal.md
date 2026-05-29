@@ -62,9 +62,9 @@ Pre-flight (single Bash block, abort with guidance on failure): `git rev-parse -
 
 - (a) no target parseable, (b) the target matches no open milestone, (c) the repo has **no open milestones at all**.
 
-**Handoff to `/claude-c-suite:pm`** (the milestone-bootstrap path — `/goal` cannot invent a milestone autonomously):
-- If `/claude-c-suite:pm` is installed → surface a one-line stop: `No usable milestone "<target>". Run /claude-c-suite:pm to triage open issues into a milestone, then re-run /gh-issue-driven:goal.` (Do **not** auto-invoke `/pm` — creating/assigning a milestone is an operator decision, and `/goal` is mid-run with no verdict to gate on.)
-- If `/claude-c-suite:pm` is not installed → same stop plus the manual fallback: `gh api repos/:owner/:repo/milestones -f title=... ` to create and `gh issue edit <n> --milestone ...` to assign.
+**Handoff to `/claude-c-suite:pm`** (the milestone-bootstrap path — `/goal` cannot invent a milestone autonomously). This is a **precondition** prompt, not a verdict, so the HITL offer fires in every autonomy level:
+- If `/claude-c-suite:pm` is installed → **offer the handoff** via `AskUserQuestion`: `No usable milestone "<target>". Run /claude-c-suite:pm now to triage open issues into a milestone?` On **accept**, invoke `/claude-c-suite:pm` via the Skill tool, let it propose ordering + create the milestone + assign issues (with its own confirmation), then **re-resolve** the milestone; if it now exists, set `MILESTONE_TITLE`/`MILESTONE_NUMBER` and continue to step 2. On **decline**, stop cleanly with the manual guidance below.
+- If `/claude-c-suite:pm` is not installed → stop with the manual fallback: `gh api repos/:owner/:repo/milestones -f title=...` to create and `gh issue edit <n> --milestone ...` to assign, then re-run `/gh-issue-driven:goal`.
 
 Set `MILESTONE_TITLE` and `MILESTONE_NUMBER` on success.
 
@@ -82,7 +82,7 @@ Record the ordered list as `WORKLIST`. If `len(WORKLIST) > MAX_ISSUES`, process 
 
 ### 3. Initialize or resume the run state file
 
-Per-milestone-run state lives at `~/.claude/cache/gh-issue-driven/goal-<repo-flat>-<milestone-flat>.json` (`<repo-flat>` = `owner/repo` with `/`→`-`). Create the cache dir with `chmod 0700` as the other commands do.
+Per-milestone-run state lives in a **dedicated `goal/` subdirectory** so it never collides with the per-branch state files that `/gh-issue-driven:status` (`all` mode) and `/gh-issue-driven:doctor` (stale-state cleanup) scan at the top level of the cache dir — a top-level `goal-*.json` would be mis-read as a bogus branch. Path: `~/.claude/cache/gh-issue-driven/goal/<repo-flat>-<milestone-flat>.json` (`<repo-flat>` = `owner/repo` with `/`→`-`). Create `~/.claude/cache/gh-issue-driven/goal/` with `chmod 0700` (the parent already gets `0700` from the other commands).
 
 Schema:
 
@@ -145,18 +145,15 @@ Choose the implementation approach by the change's size/risk, exactly as `/start
 
 Run the change to green on the issue's acceptance criteria. Then run **`/code-review`** at an effort level matched to the change (`low` for docs/small, `medium` for features, `high`/`max` for risky or wide changes); apply its findings.
 
-#### 5c. PR + assign-based Copilot loop
+#### 5c. Ship — gate2 + PR + Copilot review (delegated to `/ship`)
 
-> **Invoke `/gh-issue-driven:ship` via the Skill tool** to run gate2, create the PR, and (with `review.provider=copilot`) drive the Copilot loop. Consume its `GATE2_VERDICT` per the verdict policy (5a rules; `red` → step 5d with `phase="gate2"`).
+> **Invoke `/gh-issue-driven:ship` via the Skill tool.** `/ship` already owns this entire phase — it runs gate2, creates the PR, drives the post-PR review loop (with `review.provider=copilot`, steps 13–14), and saves `/kagura-memory:session-summary` (step 15). `/goal` does **not** re-implement any of it; it delegates and consumes `/ship`'s state. (This avoids a second, conflicting Copilot loop.)
 
-Drive the Copilot loop **assign-based**, never via the `/gh-issue-driven:review` command:
-- After the PR is open (and after every fix-push), **explicitly re-request** Copilot: `gh pr edit <pr> --add-reviewer "@copilot"`. Do **not** rely on push/open auto-trigger — it is unreliable.
-- Poll the PR for Copilot reviews/comments (`copilot.poll_interval_sec`, up to `copilot.max_wait_sec` per wait). **Dedup inline comments by body** (Copilot posts each finding multiple times). Count only **new actionable** comments since the last push.
-- Address actionable findings → commit → push → re-request → poll again.
-- **Terminate the loop** (OR — whichever first):
-  - **Quiescence (success, `copilot_quiet`)**: a re-review yields zero new actionable comments for `copilot.silent_no_op_threshold_polls` consecutive polls, or the review body says it generated no new comments.
-  - **Safety bounds (escalate)**: `loops_run >= COPILOT_MAX_LOOPS` (`max_loops`); a **no-progress** signal (same finding recurring / actionable count not decreasing); or the cumulative poll budget (`max_wait_sec`) is exhausted (`timeout`).
-- Record `copilot_exit`. A bound-exit (`max_loops`/`no_progress`/`timeout`) is **not** "done" — mark the issue `needs_human` (step 5d note) and continue to the next issue unless autonomy is `attended` (then prompt).
+Consume `/ship`'s outcome from its branch state file:
+- `GATE2_VERDICT` → apply the verdict policy (5a rules): `green`/`yellow` continue (record `yellow_auto_accepted += "gate2"` for yellow); `red` → step 5d with `phase="gate2"`. A configured `gate2.binary_gate` returning `fail` makes `/ship` hard-abort even with force — that is a **non-verdict** abort, so `/goal` stops the run per step 6.
+- The Copilot loop result (`review.copilot.exit_reason` in `/ship` state) → record as the issue's `copilot_exit`. An `approved`/quiescent exit → the issue is `done`; any other exit (unresolved feedback, a loop bound hit) → `needs_human`.
+
+> **Dogfooding note — `/ship`-loop refinements found this session, tracked as follow-ups** (NOT re-implemented here — `/goal` inherits them by delegating): `/ship`'s Copilot loop should (a) **explicitly re-request** `gh pr edit <pr> --add-reviewer @copilot` after open and each push (Mode A auto-trigger proved unreliable), and (b) **dedup** Copilot's duplicate inline comments by body before counting actionable findings. The intended per-`/goal`-run cap `goal.copilot_max_loops` (default 10) likewise wires into `/ship`'s loop (which today uses `copilot.max_loops`) as a follow-up.
 
 #### 5d. Red-verdict HITL (the only interactive stop)
 
@@ -168,11 +165,9 @@ Print the reviewer's findings, then `AskUserQuestion`:
 - **"Skip to next issue"** → mark `status="skipped"`, record the red reason in `note`, move on.
 - **"Abort the goal run"** → write state, print recap so far, exit cleanly (resumable later).
 
-#### 5e. Session summary + checkpoint
+#### 5e. Checkpoint
 
-> **Invoke `/kagura-memory:session-summary` via the Skill tool** (if installed) to persist the issue's learnings.
-
-Set the issue `status="done"` (PR open + Copilot quiescent) or `needs_human` (bound-exit / unresolved). Write the state file (`updated_at` refreshed). Then continue to the next issue (step 5, top — re-read state first).
+`/ship` already persisted `/kagura-memory:session-summary` in step 5c — `/goal` does not invoke it separately. Set the issue `status="done"` (PR open + Copilot approved/quiescent) or `needs_human` (red resolved by skip, a Copilot loop bound, or unresolved feedback). Write the goal-run state file (`updated_at` refreshed). Then continue to the next issue (step 5, top — **re-read the state file first**).
 
 > **Context note:** `/goal` does **not** and **cannot** self-invoke `/compact`. Between issues it relies on the harness's automatic context management; the step-3 state file is the durable checkpoint that lets a `resume` pick up after any auto-compaction. Optionally, an operator on `unattended` may prefer to run each issue via a dispatched subagent for context isolation — out of scope for v1, noted for a future iteration (subagents cannot do the 5d red HITL).
 
@@ -208,7 +203,7 @@ State is the source of truth; the recap is a view of it.
 | step 5b | `/feature-dev:feature-dev`, `/superpowers:*` | fall back to direct edits |
 | step 5b | `/code-review` (built-in) | warn and skip the pre-PR review step for that issue |
 | step 5c | `@copilot` (Mode A or `--add-reviewer`) | per `review.provider`; if no reviewer, the issue's PR is left open for manual review and marked `needs_human` |
-| step 5e | `/kagura-memory:session-summary` | skip with a warning |
+| step 5c (via `/ship`) | `/kagura-memory:session-summary` | `/ship` skips it with a warning |
 
 ## Failure modes
 
