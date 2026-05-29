@@ -140,7 +140,7 @@ Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
 |---|---|---|
 | `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: run unattended through `green`/`yellow` (yellow auto-accepted as green and logged), pause for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted — fully hands-off (the `force` flag forces this for one run); the safety caps are the only backstop. `"attended"`: restore the normal per-command green/yellow HITL prompts. |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
-| `copilot_max_loops` | `10` | Per-PR Copilot fix↔re-review loop cap. The loop also terminates on quiescence (zero new actionable comments for `copilot.silent_no_op_threshold_polls` polls), a no-progress signal, or the `copilot.max_wait_sec` budget. A bound-exit marks the issue `needs_human` rather than `done`. |
+| `copilot_max_loops` | `10` | **Reserved — not yet honored.** `/goal` delegates the Copilot loop to `/ship`, which today bounds it with `copilot.max_loops`. This key is the intended per-`/goal`-run override; wiring it into `/ship`'s loop is a follow-up (tracked alongside #74). Until then it has no effect — set `copilot.max_loops` to tune the loop. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` reuses `copilot.*` (poll interval, max wait, silent-no-op threshold) for its assign-based Copilot loop, and `review.provider` for reviewer selection.
 

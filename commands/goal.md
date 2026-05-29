@@ -102,7 +102,7 @@ Schema:
       "pr": <number or null>,
       "gate1": "<green|yellow|red|null>",
       "gate2": "<green|yellow|red|null>",
-      "copilot_exit": "<copilot_quiet|max_loops|no_progress|timeout|skipped|null>",
+      "copilot_exit": "<verbatim /ship review.copilot.exit_reason (e.g. approved | hitl_declined | max_loops | ...), or null if /ship was not reached>",
       "yellow_auto_accepted": ["gate1", "gate2"],
       "note": "<short reason when needs_human/skipped, else null>"
     }
@@ -129,7 +129,7 @@ Copilot loop cap: <COPILOT_MAX_LOOPS> per PR
 
 ### 5. Per-issue loop
 
-For each issue in `WORKLIST` not already `done`, re-read the state file, set its `status="in_progress"`, then run the phases. **A delegated command's HITL gates are suppressed per the autonomy model** — when invoking `/gh-issue-driven:start` and `/gh-issue-driven:ship`, `/goal` consumes their verdict and applies step's red-only policy itself rather than letting their green/yellow prompts fire. (Implementation note: drive the phases honoring `/goal`'s verdict table; do not surface a sub-command's green/yellow confirmation — only act on its computed verdict and the red HITL in 5d.)
+For each issue in `WORKLIST` not already `done`, re-read the state file, set its `status="in_progress"`, then run the phases. `/goal` consumes each delegated command's verdict and applies the red-only policy (5a/5c) — gating on `red` itself (step 5d) and treating green/yellow as continue. **Caveat until #74 lands:** `/goal` cannot yet *suppress* `/start`//ship`'s own green/yellow/Copilot-invocation prompts (they own those `AskUserQuestion` gates and there is no bypass signal yet — see the Implementation-status note in the Autonomy model). So today the operator still taps through those sub-command confirmations; `/goal`'s contribution is the milestone-wide orchestration, ordering, resumable state, and the red-verdict gate. When #74 wires `--autonomous`, the green/yellow path becomes truly unattended.
 
 #### 5a. Design gate (start)
 
