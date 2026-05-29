@@ -132,6 +132,18 @@ Opt-in mechanism that lets `/gh-issue-driven:ship` skip irrelevant gate2 advisor
 
 **When NOT to enable**: if your repo treats `docs/` as security-sensitive (e.g. published threat models, secret-management docs that could leak credentials when edited), keep the default `false`. Skipping `cso` is appropriate only when docs changes carry no security review obligation.
 
+### `goal.*`
+
+Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: run unattended through `green`/`yellow` (yellow auto-accepted as green and logged), pause for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted — fully hands-off (the `force` flag forces this for one run); the safety caps are the only backstop. `"attended"`: restore the normal per-command green/yellow HITL prompts. |
+| `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
+| `copilot_max_loops` | `10` | Per-PR Copilot fix↔re-review loop cap. The loop also terminates on quiescence (zero new actionable comments for `copilot.silent_no_op_threshold_polls` polls), a no-progress signal, or the `copilot.max_wait_sec` budget. A bound-exit marks the issue `needs_human` rather than `done`. |
+
+The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` reuses `copilot.*` (poll interval, max wait, silent-no-op threshold) for its assign-based Copilot loop, and `review.provider` for reviewer selection.
+
 ### `memory.context_id`
 
 Accepts three forms — in priority order of recommendation:
@@ -262,6 +274,11 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "pm_skill": "/claude-c-suite:pm",
     "dedup_max_results": 10,
     "yellow_continue_requires_confirm": true
+  },
+  "goal": {
+    "autonomy": "red-only",
+    "max_issues_per_run": 20,
+    "copilot_max_loops": 10
   },
   "doctor": {
     "expected_origins": {
