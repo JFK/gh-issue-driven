@@ -43,6 +43,8 @@ Copilot review invocation is **assign-based and never prompts** — `/goal` assi
 
 The autonomy level only governs **verdict** gating. The milestone-missing precondition (step 1) and a delegated command aborting for a non-verdict reason always stop the run regardless of level — those are not verdicts and cannot be auto-resolved.
 
+> **Implementation status (read this):** truly suppressing the green/yellow/Copilot HITL prompts that `/start` and `/ship` raise from *their own* config requires passing them an `--autonomous=<level>` signal — that wiring is tracked in **#74** and is **not yet in place**. Until #74 lands, `/goal` still consumes each sub-command's verdict and applies the red-only policy, but the delegated `/start`//ship` will surface their own green/yellow/Copilot-invocation prompts (you tap through them); the only verdict `/goal` itself gates on is `red`. Once #74 merges, `/goal` passes `--autonomous=<level>` and the green/yellow path is genuinely unattended. An env var cannot carry this signal (skills run in-context, not as subprocesses), which is why it is an explicit flag.
+
 ## Steps
 
 ### 1. Parse arguments, load config, resolve the milestone (hard precondition)
