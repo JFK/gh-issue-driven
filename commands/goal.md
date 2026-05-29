@@ -19,7 +19,7 @@ Forbidden actions during this command:
 - Merging PRs (a merged PR is the operator's decision — `/goal` opens PRs and drives review, it does **not** merge)
 - Deleting branches; `git reset --hard`; `git push --force`
 - Modifying `~/.claude/settings.json` or `~/.claude/gh-issue-driven-config.json`
-- Modifying files outside `~/.claude/cache/gh-issue-driven/`
+- Writing anywhere outside the **current repo working tree** and the plugin cache (`~/.claude/cache/gh-issue-driven/`). `/goal` and its delegated commands DO edit the repo to implement issues (step 5b) — that is expected; what is forbidden is writing elsewhere on the filesystem (home dotfiles, other repos, system paths).
 
 If you encounter unexpected state (a delegated command aborts for a reason other than a red verdict, a PR cannot be created, the working tree is dirty between issues), **stop and report** — do not auto-clean.
 
@@ -155,7 +155,9 @@ Consume `/ship`'s outcome from its branch state file:
 - `GATE2_VERDICT` → apply the verdict policy (5a rules): `green`/`yellow` continue (record `yellow_auto_accepted += "gate2"` for yellow); `red` → step 5d with `phase="gate2"`. A configured `gate2.binary_gate` returning `fail` makes `/ship` hard-abort even with force — that is a **non-verdict** abort, so `/goal` stops the run per step 6.
 - The Copilot loop result (`review.copilot.exit_reason` in `/ship` state) → record as the issue's `copilot_exit`. An `approved`/quiescent exit → the issue is `done`; any other exit (unresolved feedback, a loop bound hit) → `needs_human`.
 
-> **Dogfooding note — `/ship`-loop refinements found this session, tracked as follow-ups** (NOT re-implemented here — `/goal` inherits them by delegating): `/ship`'s Copilot loop should (a) **explicitly re-request** `gh pr edit <pr> --add-reviewer @copilot` after open and each push (Mode A auto-trigger proved unreliable), and (b) **dedup** Copilot's duplicate inline comments by body before counting actionable findings. The intended per-`/goal`-run cap `goal.copilot_max_loops` (default 10) likewise wires into `/ship`'s loop (which today uses `copilot.max_loops`) as a follow-up.
+`/goal` **defers entirely to `/ship`'s existing Copilot loop and its recorded state values** — it does **not** run a second loop, apply its own cap, or re-request Copilot itself. The loop is bounded by `/ship`'s own `copilot.max_loops` and tuning; `/goal` only reads `review.copilot.exit_reason` to decide `done` vs `needs_human`.
+
+> **Follow-ups (NOT this command's behavior — improvements to `/ship`'s loop, found dogfooding this session):** `/ship`'s Copilot loop should (a) **explicitly re-request** `gh pr edit <pr> --add-reviewer @copilot` after open and each push (Mode A auto-trigger proved unreliable), and (b) **dedup** Copilot's duplicate inline comments before counting actionable findings. The `goal.copilot_max_loops` config key is **reserved** for a future `/ship`-loop override (wired alongside #74); today the loop honors `copilot.max_loops`. None of these are implemented in `/goal` — it simply consumes `/ship`'s result.
 
 #### 5d. Red-verdict HITL (the only interactive stop)
 
