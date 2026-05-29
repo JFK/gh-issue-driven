@@ -90,7 +90,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 | Command | Phase | What it does |
 |---|---|---|
 | `/gh-issue-driven:start <issue...> [flags]` | 1 | Fetch issue(s), run gate 1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`. |
-| `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, HITL gate, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`. |
+| `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, HITL gate, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`. |
 | `/gh-issue-driven:review [flags]` | 2 | Re-run the post-PR review loop on an already-open PR (Copilot, `/code-review`, or both). Re-entrant by design. Flags: `dry-run`, `force`. |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | Release ceremony: compose release notes, bump manifests, update `CHANGELOG.md`, commit, annotated-tag, push, create GitHub Release. Flags: `dry-run`, `force`, `--notes-file=<path>`. |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | Draft and file a new issue: dedup check, quality review, PM enrichment, HITL confirmation. Flags: `dry-run`, `force`. |
@@ -233,6 +233,15 @@ A diff that touches even one non-doc file disqualifies docs-only treatment — t
 
 Persistent equivalent: set `gate2.diff_scope_skip.enabled: true` in config.
 
+### `--review=code-reviewer` — swap the gate2 cascade for the code-reviewer agent (`/ship`)
+
+`/gh-issue-driven:ship --review=code-reviewer` **replaces** the gate2 advisor cascade (`cso` + `qa-lead` + `cto`) with a single invocation of the `feature-dev:code-reviewer` agent. The agent has its own context window (it reads changed files via its own tools, not just the prompt-embedded diff), uses confidence-based filtering, and covers bugs/security/quality/conventions in one pass — a faster, code-quality-focused alternative to the governance-lensed cascade.
+
+- **Verdict**: the agent's output is mapped `fail` if it contains high-priority markers (`must fix`, `blocker`, `critical`, `high-priority`), else `pass`. `pass` → green (HITL gate still applies); `fail` → red (aborts PR creation unless `force`).
+- **Orthogonal to `auto-skip`**: if both are set and the diff is docs-only, `auto-skip` wins (the stricter omission — docs-only needs no heavyweight review).
+- **Graceful degradation**: if the `feature-dev` plugin (which provides the agent) is not installed, `/ship` warns and falls back to the normal gate2 cascade — never a silent skip. Run `/gh-issue-driven:doctor` to check availability.
+- The `--review=` syntax is reserved for future reviewer targets.
+
 ### `--with-plan` — generate an implementation plan after gate1 (`/start`)
 
 `/gh-issue-driven:start <issue> --with-plan` invokes `superpowers:writing-plans` after the gate1 verdict and before branch creation. The plan markdown is captured from the conversation and persisted to `~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md`; the state file's `plan.path` points to it.
@@ -252,6 +261,7 @@ The plan is **produced in-line** as part of the `/start` conversation — the sa
 - **`auto-size` + complex issue**: if you set `auto-size` globally and the heuristic misclassifies a complex issue as small, gate1 is skipped without ceremony. The HITL gate is your safety net — override the skip and re-run if needed.
 - **`auto-skip` + security-sensitive docs**: if your `docs/` directory contains published threat models or anything that warrants security review on edit, keep the default `false` and re-add `cso` manually for those PRs.
 - **`--parallel` for trivial changes**: subagent dispatch has its own setup cost. For one-file fixes, the in-conversation continue target ("draft a plan now") is cheaper.
+- **`--review=code-reviewer` for governance-sensitive changes**: the code-reviewer agent is code-quality-focused, not governance-lensed. When a change needs the security/QA/architecture *governance* perspectives (`cso`/`qa-lead`/`cto`), keep the default cascade.
 
 ---
 

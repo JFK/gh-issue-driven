@@ -89,7 +89,7 @@ graph LR
 | コマンド | フェーズ | 動作 |
 |---|---|---|
 | `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>` |
-| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft` |
+| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer` |
 | `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
@@ -232,6 +232,15 @@ HITL 確認ゲートは引き続き発火するので、「I have feedback」で
 
 永続化設定は `gate2.diff_scope_skip.enabled: true`。
 
+### `--review=code-reviewer` — gate2 cascade を code-reviewer agent に差し替え (`/ship`)
+
+`/gh-issue-driven:ship --review=code-reviewer` は gate2 advisor cascade (`cso` + `qa-lead` + `cto`) を **`feature-dev:code-reviewer` agent の単一呼び出しに置き換え**ます。この agent は独自のコンテキストウィンドウを持ち (prompt 埋め込みの diff だけでなく自前のツールで変更ファイルを読む)、confidence ベースのフィルタリングで bug/security/quality/conventions を1パスでカバー — ガバナンス視点の cascade に対する、より高速で code-quality 重視の代替です。
+
+- **Verdict**: agent 出力に high-priority マーカー (`must fix` / `blocker` / `critical` / `high-priority`) を含めば `fail`、なければ `pass`。`pass` → green (HITL ゲートは維持)、`fail` → red (`force` なしでは PR 作成を中止)。
+- **`auto-skip` と直交**: 両方指定かつ diff が docs-only なら `auto-skip` 優先 (docs-only は重いレビュー不要、というより厳しい省略)。
+- **graceful degradation**: agent を提供する `feature-dev` プラグイン未インストール時は warning を出して通常の gate2 cascade にフォールバック — silent skip しません。可用性は `/gh-issue-driven:doctor` で確認。
+- `--review=` 構文は将来の reviewer ターゲット用に予約。
+
 ### `--with-plan` — gate1 後に実装プランを生成 (`/start`)
 
 `/gh-issue-driven:start <issue> --with-plan` で、gate1 verdict 後・branch 作成前に `superpowers:writing-plans` を起動。plan markdown は会話から取得され、`~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md` に永続化、state file の `plan.path` が pointer になります。
@@ -251,6 +260,7 @@ plan は `/start` 会話の **in-line で生成** されます — `/claude-c-su
 - **`auto-size` + 複雑 issue**: グローバルに `auto-size` を ON にして heuristic が複雑 issue を small と誤判定した場合、gate1 はそのままスキップされます。HITL gate が safety net なので、override して再実行可能。
 - **`auto-skip` + security-sensitive docs**: `docs/` に脅威モデルなど security review 必須の文書がある場合は default `false` のまま、必要 PR で `cso` を手動で追加。
 - **`--parallel` + 些細な変更**: subagent dispatch には setup コストがあります。1ファイルの fix なら conversation 内 continue target (「plan を起案」) の方が安価。
+- **`--review=code-reviewer` + ガバナンス重要変更**: code-reviewer agent は code-quality 重視でガバナンス視点ではありません。security/QA/architecture の*ガバナンス*観点 (`cso`/`qa-lead`/`cto`) が要る変更ではデフォルトの cascade を使ってください。
 
 ---
 
