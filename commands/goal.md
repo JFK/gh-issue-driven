@@ -38,7 +38,7 @@ The PR + Copilot review loop is **delegated to `/ship`** (step 5c) — `/goal` d
 
 `goal.autonomy` (config, default `"red-only"`) selects the level:
 - `"red-only"` (default): the table above.
-- `"unattended"`: red is also auto-accepted (treated as yellow) — fully hands-off. The `force` flag forces this for one run. Use with care; the safety caps (step 6) are the only backstop.
+- `"unattended"`: red is also auto-accepted — fully hands-off (the `force` flag forces this for one run). **`/goal` forwards `force` to the delegated `/start` and `/ship`** so they continue past their own red verdicts instead of aborting — `force` is an existing flag on both commands, so **unattended actually works today, pre-#74** (unlike `red-only`'s in-loop force/skip/abort menu, which needs #74's verdict-handback). Use with care; the safety caps (step 6) are the only backstop. (Even under `force`, `/ship` still hard-blocks on a configured `gate2.binary_gate` `fail` — that is not force-overridable, so the run stops there.)
 - `"attended"`: restore the normal per-command HITL (green and yellow also prompt). For operators who want `/goal` only to sequence the phases.
 
 The autonomy level only governs **verdict** gating. The milestone-missing precondition (step 1) and a delegated command aborting for a non-verdict reason always stop the run regardless of level — those are not verdicts and cannot be auto-resolved.
@@ -112,7 +112,7 @@ Schema:
 }
 ```
 
-- **`resume`**: if the state file exists and `RESUME` is set (or it exists and was left mid-run), load it; skip issues already `done`; re-enter the first `pending`/`in_progress`/`needs_human` issue. This is what makes `/goal` survive **harness auto-compaction** between issues — `/goal` cannot self-invoke `/compact`, so it relies on automatic compaction and treats this state file as the durable checkpoint. Re-read it at the top of every issue iteration; never hold the whole run only in conversation memory.
+- **`resume`**: if the state file exists and `RESUME` is set (or it exists and was left mid-run), load it; **skip** issues that are `done`, `skipped`, **or `needs_human`** — the last two require explicit operator action, so `/goal` does **not** auto-retry them (else an issue that hit `max_loops`/`hitl_declined` would loop forever). Re-enter the first `pending` or `in_progress` issue from step 5a; re-enter a `pr_open` issue from step 5c (consume `/ship`'s existing review state rather than restarting it from gate1). An operator who wants a `needs_human` issue retried resets its status to `pending` in the state file first. This is what makes `/goal` survive **harness auto-compaction** between issues — `/goal` cannot self-invoke `/compact`, so it relies on automatic compaction and treats this state file as the durable checkpoint. Re-read it at the top of every issue iteration; never hold the whole run only in conversation memory.
 - Write the file with the temp-file + atomic `mv` pattern, and re-write `updated_at` after every per-issue phase transition (step 5h).
 - `DRY_RUN`: do not write the state file; just print the planned `WORKLIST` and order rationale, then exit.
 
@@ -133,7 +133,7 @@ For each issue in `WORKLIST` not already `done`, re-read the state file, set its
 
 #### 5a. Design gate (start)
 
-> **Invoke `/gh-issue-driven:start <issue>` via the Skill tool.** It fetches the issue, recalls memory, runs gate1, and creates the typed branch. Capture the resulting `GATE1_VERDICT` and branch name from its state file (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`).
+> **Invoke `/gh-issue-driven:start <issue>` via the Skill tool.** When `AUTONOMY` is `unattended`/`force`, invoke it as `/gh-issue-driven:start <issue> force` so a red gate1 continues rather than aborting. It fetches the issue, recalls memory, runs gate1, and creates the typed branch. Capture the resulting `GATE1_VERDICT` and branch name from its state file (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`).
 
 Apply the verdict policy (Autonomy model table). On `green`/`yellow` → continue (record `yellow_auto_accepted += "gate1"` for yellow). On `red` → go to step 5d with `phase="gate1"`.
 
@@ -149,11 +149,11 @@ Run the change to green on the issue's acceptance criteria. Then run **`/code-re
 
 #### 5c. Ship — gate2 + PR + Copilot review (delegated to `/ship`)
 
-> **Invoke `/gh-issue-driven:ship` via the Skill tool.** `/ship` already owns this entire phase — it runs gate2, creates the PR, drives the post-PR review loop (with `review.provider=copilot`, steps 13–14), and saves `/kagura-memory:session-summary` (step 15). `/goal` does **not** re-implement any of it; it delegates and consumes `/ship`'s state. (This avoids a second, conflicting Copilot loop.)
+> **Invoke `/gh-issue-driven:ship` via the Skill tool** (as `/gh-issue-driven:ship force` when `AUTONOMY` is `unattended`/`force`, so a red gate2 continues instead of aborting — note `force` still does not override a `gate2.binary_gate` `fail`). `/ship` already owns this entire phase — it runs gate2, creates the PR, drives the post-PR review loop (with `review.provider=copilot`, steps 13–14), and saves `/kagura-memory:session-summary` (step 15). `/goal` does **not** re-implement any of it; it delegates and consumes `/ship`'s state. (This avoids a second, conflicting Copilot loop.)
 
 Consume `/ship`'s outcome from its branch state file:
 - `GATE2_VERDICT` → apply the verdict policy (5a rules): `green`/`yellow` continue (record `yellow_auto_accepted += "gate2"` for yellow); `red` → step 5d with `phase="gate2"`. A configured `gate2.binary_gate` returning `fail` makes `/ship` hard-abort even with force — that is a **non-verdict** abort, so `/goal` stops the run per step 6.
-- The Copilot loop result (`review.copilot.exit_reason` in `/ship` state) → record verbatim as the issue's `copilot_exit`, then map to status using `/ship`'s actual exit vocabulary: the **quiescent-success** reasons `approved` / `no_actionable_feedback` / `silent_no_op` (Copilot has no actionable feedback left) → issue is `done`; the **incomplete** reasons `max_loops` / `tests_failed` / `hitl_declined` → `needs_human`. A `null` exit (no Copilot loop ran — `review.provider` is `none`, or Copilot was unavailable) → `needs_human`: the PR is open but **unreviewed**, so a human should review it (consistent with the dependency table's no-reviewer row). Only an explicit quiescent-success exit marks an issue `done`.
+- The Copilot loop result (`review.copilot.exit_reason` in `/ship` state) → record verbatim as the issue's `copilot_exit`, then map to status using `/ship`'s actual exit vocabulary: the **reviewed-success** reasons `approved` / `no_actionable_feedback` (Copilot reviewed and has no actionable feedback) → issue is `done`; the **incomplete/anomaly** reasons `silent_no_op` (Copilot never responded despite invocation — `/ship` leaves the PR draft) / `max_loops` / `tests_failed` / `hitl_declined` → `needs_human`. A `null` exit (no Copilot loop ran — `review.provider` is `none`, or Copilot was unavailable) → `needs_human`: the PR is open but **unreviewed**, so a human should review it (consistent with the dependency table's no-reviewer row). Only an explicit quiescent-success exit marks an issue `done`.
 
 `/goal` **defers entirely to `/ship`'s existing Copilot loop and its recorded state values** — it does **not** run a second loop, apply its own cap, or re-request Copilot itself. The loop is bounded by `/ship`'s own `copilot.max_loops` and tuning; `/goal` only reads `review.copilot.exit_reason` to decide `done` vs `needs_human`.
 
