@@ -1,5 +1,5 @@
 ---
-description: Phase G of gh-issue-driven — autonomously drive a whole milestone to done. For each open issue it runs start → implement → /code-review → PR → assign-based Copilot loop → session-summary, checkpointing between issues. Runs unattended through green/yellow verdicts; only a red verdict pauses for HITL.
+description: Phase G of gh-issue-driven — drive a whole milestone to PR. For each open issue it runs start → implement → /code-review → ship (gate2 + PR + Copilot review loop + session-summary), checkpointing to resumable state between issues. Gates on red verdicts (HITL); green/yellow auto-continue. (Full green/yellow unattended — suppressing the delegated start/ship prompts — is wired in #74.)
 arguments:
   - name: target
     description: "The milestone to finish, e.g. 'finish milestone 0.5.0', a bare milestone title ('v0.5.0'), or a milestone number. Optional trailing flags: 'dry-run' (plan the order and print what would run, touch nothing), 'force' (treat red verdicts as yellow — fully unattended, no HITL at all), 'resume' (continue the most recent unfinished run for this milestone)."
@@ -34,7 +34,7 @@ If you encounter unexpected state (a delegated command aborts for a reason other
 | `red` | **The only HITL stop.** Pause and ask the operator (step 5d). |
 | `decline` (gate1 only) | The cascade already escalated `/ask`→`/ceo` inside `/start`; treat the resulting `/ceo` verdict by this same table. A bare `decline` reaching `/goal` is treated as `red`. |
 
-Copilot review invocation is **assign-based and never prompts** — `/goal` assigns `@copilot` and drives the loop (step 5c) to quiescence or its safety bounds without HITL.
+The PR + Copilot review loop is **delegated to `/ship`** (step 5c) — `/goal` does not run its own loop, assign `@copilot`, or re-request reviews itself; it consumes `/ship`'s loop outcome. (Suppressing `/ship`'s own Copilot-invocation prompt under autonomy is part of the #74 wiring.)
 
 `goal.autonomy` (config, default `"red-only"`) selects the level:
 - `"red-only"` (default): the table above.
@@ -54,7 +54,7 @@ Parse `$ARGUMENTS`: extract the **milestone target** (everything that isn't a kn
 Load `~/.claude/gh-issue-driven-config.json` over the documented defaults. Extract:
 - `AUTONOMY` from `goal.autonomy` (default `"red-only"`); `force` overrides to `"unattended"` for this run.
 - `MAX_ISSUES` from `goal.max_issues_per_run` (default `20`) — a runaway backstop.
-- `COPILOT_MAX_LOOPS` from `goal.copilot_max_loops` (default `10`).
+- The Copilot loop cap is **`/ship`'s `copilot.max_loops`** (the loop is delegated, step 5c). `goal.copilot_max_loops` is reserved/not-yet-honored (see config.md) — do **not** read it as an active cap.
 - `LANG` from `lang` (default `"en"`).
 - The Copilot loop tuning (`copilot.poll_interval_sec`, `copilot.max_wait_sec`, `copilot.silent_no_op_threshold_polls`) is reused as-is from the effective config.
 
@@ -124,7 +124,7 @@ Print a compact plan block (localized when `lang != "en"`):
 Goal: finish milestone <title> (#<number>) — <N> open issue(s)
 Autonomy: <level>  (red verdict → HITL; yellow → auto-accepted; green → continue)
 Order: #<a> → #<b> → #<c> ...
-Copilot loop cap: <COPILOT_MAX_LOOPS> per PR
+Review: delegated to /ship (gate2 + PR + Copilot loop, bounded by copilot.max_loops)
 ```
 
 ### 5. Per-issue loop
@@ -178,7 +178,7 @@ Print the reviewer's findings, then `AskUserQuestion`:
 ### 6. Safety caps (always in force)
 
 - `MAX_ISSUES` per run (step 2) — deferred issues are logged, never silently dropped.
-- `COPILOT_MAX_LOOPS` per PR + no-progress + `max_wait_sec` budget (step 5c).
+- The Copilot loop is bounded by **`/ship`** (`copilot.max_loops` + its no-progress/`max_wait_sec` handling) — owned by `/ship`, not `/goal` (step 5c).
 - Any delegated command aborting for a **non-verdict** reason (dirty tree, push failure, PR-create failure, missing required skill with no fallback) stops the whole run with the raw error — `/goal` never "cleans up" or retries blindly.
 - `/goal` never merges PRs and never pushes to the default branch.
 
