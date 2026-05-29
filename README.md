@@ -8,7 +8,9 @@
 
 > **Full-lifecycle GitHub-issue-driven dev workflow: `propose` issues from session context, design-gated `start`, advisor + Copilot-gated `ship` with HITL confirmation at every phase boundary, ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.**
 
-`gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin that turns "I'm starting work on issue #142" into a single, repeatable three-phase workflow:
+`gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin — but think of it as an **orchestration harness**: a thin meta-layer that wires Claude Code's own skills and agents (design advisors, memory recall, `/code-review`, Copilot) into one governed, repeatable issue → release pipeline with a human-in-the-loop checkpoint at every phase boundary. It's **not** a code generator or a single command — it's the layer that *coordinates* those skills with governance gates and memory.
+
+It turns "I'm starting work on issue #142" into a single, repeatable three-phase workflow:
 
 ```mermaid
 graph LR
