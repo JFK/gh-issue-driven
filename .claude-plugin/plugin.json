@@ -1,7 +1,7 @@
 {
   "name": "gh-issue-driven",
   "version": "0.10.0",
-  "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship with HITL confirmation at every phase boundary, ceremony-automated tag — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
+  "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship, ceremony-automated tag, and a /goal orchestrator that drives a whole milestone to PRs — with HITL confirmation at every phase boundary or unattended autonomous runs, multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
   "author": {
     "name": "Fumikazu Kiyota",
     "url": "https://github.com/JFK"
@@ -18,6 +18,9 @@
     "kagura-memory",
     "c-suite",
     "phd-panel",
+    "milestone",
+    "orchestration",
+    "harness",
     "developer-experience"
   ],
   "commands": ["./commands/"]
