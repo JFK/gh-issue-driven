@@ -87,6 +87,17 @@ check "$F" "hitl-disabled: hitl_confirmed_at" '.review.copilot.hitl_confirmed_at
 # v1/v2 compatibility: same fallback path as status.md all-mode footer
 check "$F" "hitl-disabled: v2-compat check"   '(.review.copilot.exit_reason // .copilot.exit_reason)' "silent_no_op"
 
+# --- goal-run state (Phase G milestone orchestrator) ---
+F="$FIXTURE_DIR/goal-run.json"
+check "$F" "goal-run: schema_version"          '.schema_version'                       "1"
+check "$F" "goal-run: milestone.number"        '.milestone.number'                     "10"
+check "$F" "goal-run: autonomy enum"           '.autonomy as $a | (["red-only","unattended","attended"] | index($a)) != null' "true"
+check "$F" "goal-run: worklist length"         '.worklist | length'                    "4"
+check "$F" "goal-run: issue done status"       '.issues["67"].status'                  "done"
+check "$F" "goal-run: issue needs_human"       '.issues["68"].status'                  "needs_human"
+check "$F" "goal-run: done copilot_exit ok"    '.issues["67"].copilot_exit as $e | (["approved","no_actionable_feedback","silent_no_op"] | index($e)) != null' "true"
+check "$F" "goal-run: needs_human exit ok"     '.issues["68"].copilot_exit as $e | (["max_loops","tests_failed","hitl_declined"] | index($e)) != null' "true"
+
 echo "---"
 echo "$PASS passed / $FAIL failed / $TOTAL total"
 [ "$FAIL" -eq 0 ] || exit 1

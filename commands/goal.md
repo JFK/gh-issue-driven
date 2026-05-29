@@ -52,7 +52,7 @@ The autonomy level only governs **verdict** gating. The milestone-missing precon
 Parse `$ARGUMENTS`: extract the **milestone target** (everything that isn't a known flag; tolerate a leading `finish milestone` phrasing — strip those words) and the flags `dry-run`, `force`, `resume`. Set `DRY_RUN`, `FORCE`, `RESUME` booleans. Reject unknown flag-shaped tokens.
 
 Load `~/.claude/gh-issue-driven-config.json` over the documented defaults. Extract:
-- `AUTONOMY` from `goal.autonomy` (default `"red-only"`); `force` overrides to `"unattended"` for this run.
+- `AUTONOMY` from `goal.autonomy` (default `"red-only"`); `force` overrides to `"unattended"` for this run. **Validate** against the enum `{red-only, unattended, attended}` — an unrecognized value (e.g. a typo like `redonly`) is rejected with `error: invalid goal.autonomy "<v>" (expected: red-only | unattended | attended)`. Never run with an undefined gating policy.
 - `MAX_ISSUES` from `goal.max_issues_per_run` (default `20`) — a runaway backstop.
 - The Copilot loop cap is **`/ship`'s `copilot.max_loops`** (the loop is delegated, step 5c) — `/goal` does not define its own cap.
 - `LANG` from `lang` (default `"en"`).
@@ -162,6 +162,8 @@ Consume `/ship`'s outcome from its branch state file:
 #### 5d. Red-verdict HITL (the only interactive stop)
 
 Reached only on a `red` gate1/gate2 verdict (under `red-only`/`attended`; never under `unattended`/`force` — there red is auto-accepted and logged loudly).
+
+> **Detection caveat until #74:** the full interactive 5d menu (force-continue / skip / abort) depends on `/start` and `/ship` **returning** the red verdict to `/goal` instead of aborting. Today they do not — `/start` aborts on red *before* creating the branch/state file, and `/ship` aborts *before* persisting `gate2.verdict`. So pre-#74, `/goal` detects a red gate by the **sub-command aborting** (non-verdict exit, step 6): it stops the whole run and reports the issue + phase + the reviewer's findings, rather than offering the in-loop 5d menu. The `--autonomous` wiring in #74 (which makes `/start`/`/ship` hand the verdict back rather than abort) is what unlocks the in-loop force/skip/abort choice. Both behaviors keep a red change from proceeding unattended; #74 just makes the recovery smoother.
 
 Print the reviewer's findings, then `AskUserQuestion`:
 - **Question**: `Issue #<num>: <phase> returned red. How to proceed?`
