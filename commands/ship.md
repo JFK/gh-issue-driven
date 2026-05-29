@@ -2,7 +2,7 @@
 description: Phase 2 of gh-issue-driven — runs gate2 (audit + cso + qa-lead + cto in parallel), creates the PR, drives a Copilot review loop up to 5 iterations, and saves session knowledge to Kagura Memory.
 arguments:
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR), 'auto-skip' (skip gate2 advisors that don't apply to the diff scope — see `gate2.diff_scope_skip` config)."
+    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR), 'auto-skip' (skip gate2 advisors that don't apply to the diff scope — see `gate2.diff_scope_skip` config), '--review=<target>' (replace the gate2 advisor cascade with an alternate reviewer; initial target 'code-reviewer' → the feature-dev:code-reviewer agent)."
     required: false
 ---
 
@@ -130,6 +130,8 @@ Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/g
 
 `AUTO_SKIP` opts in to gate2 diff-scope skipping for this invocation only. The config key `gate2.diff_scope_skip.enabled` (default `false`) is the persistent equivalent; the flag overrides the config to `true` for one run. Backward-compat: when neither the flag nor the config enables it, gate2 behavior is byte-identical to v0.8.0.
 
+`--review=<target>` (default unset → `REVIEW_TARGET=null`) selects an alternate gate2 reviewer that **replaces** the advisor cascade. Parse the value after `=`. Supported target: `code-reviewer` (→ the `feature-dev:code-reviewer` Agent). The `--review=` prefix syntax is reserved for future skill/tool-injection targets; reject any other value with `error: unknown --review target '<v>' (supported: code-reviewer)`. `--review` is orthogonal to `auto-skip`; precedence is resolved in step 4b.
+
 Determine `REVIEW_PROVIDER` as follows: if the **user config** explicitly sets `review.provider`, use that value. Otherwise, for backward compatibility with v0.1.x configs, check legacy `copilot.enabled`: if the user config explicitly sets `copilot.enabled` to `false`, set `REVIEW_PROVIDER="none"`; otherwise default to `"copilot"`. Valid values: `copilot`, `code-review`, `both`, `none`. If `NO_COPILOT` is set, override `REVIEW_PROVIDER` to `"none"` for this invocation (backward compatibility).
 
 `DRAFT` defaults to `pr.draft_default` from the effective config (default `true`). The `draft` flag in `$ARGUMENTS` **overrides** this to `true`. There is no flag to force non-draft when `pr.draft_default` is `true` — the operator should set the config value to `false` if they want non-draft as the default.
@@ -236,6 +238,18 @@ gate2.diff_scope_skip: diff is not docs-only (<N> changed files); running full a
 
 `SKIPPED_ADVISORS` is recorded in the state file (step 9) so the recap and PR body can surface what was skipped and why. The binary gate (`gate2.binary_gate`) is **never** skipped by this mechanism — only advisors. Binary gate skipping is governed by `gate2.binary_gate=null` (see config.md).
 
+### 4b. Resolve the gate2 review mode (`--review` dispatch)
+
+Determine `GATE2_MODE`:
+
+- **Default** (no `--review`, i.e. `REVIEW_TARGET=null`): `GATE2_MODE="cascade"` — the normal binary-gate + advisor battery (steps 5–8), with any step-4a `SKIPPED_ADVISORS` filtering applied. Behavior is byte-identical to before this feature.
+- **`REVIEW_TARGET == "code-reviewer"`**:
+  - **auto-skip precedence** — if step 4a classified the diff as **docs-only** (`SKIPPED_ADVISORS` non-empty from a docs-only match), `auto-skip` wins (the stricter omission: docs-only means no heavyweight review needed). Log `--review=code-reviewer superseded by auto-skip (docs-only diff); using cascade` and set `GATE2_MODE="cascade"`.
+  - else **probe agent availability** — check whether the `feature-dev` plugin (which provides the `code-reviewer` agent) is installed, using the same plugin-cache probe style as `doctor.md`: `ls -d ~/.claude/plugins/cache/feature-dev* >/dev/null 2>&1`. If **unavailable**, degrade gracefully (no silent failure): log `warning: feature-dev:code-reviewer not available; falling back to gate2 cascade` and set `GATE2_MODE="cascade"`.
+  - else set `GATE2_MODE="code-reviewer-agent"`.
+
+`GATE2_MODE` selects the step-6 path. When `GATE2_MODE="code-reviewer-agent"`, the parallel reviewer battery (rest of step 6) and steps 7–8's per-advisor classification are **replaced** by step 6c; the run then continues at step 8a (HITL). When `GATE2_MODE="cascade"`, proceed normally.
+
 ### 5. Build the gate2 prompt block
 
 Construct one shared block all four reviewers will receive:
@@ -270,6 +284,8 @@ the last `## Verdict:` line is what counts.
 
 ### 6. Gate 2 — parallel reviewer battery
 
+**If `GATE2_MODE == "code-reviewer-agent"`** (set in step 4b): skip the entire parallel reviewer battery (the rest of step 6) **and** steps 7–8's per-advisor classification. Run **step 6c** instead, then continue at step 8a (HITL on green) / step 9. Otherwise (`GATE2_MODE == "cascade"`) proceed with the battery as written below.
+
 Read `gate2.binary_gate` and `gate2.advisors` from the effective config.
 
 First, read the advisor list from config: `ADVISORS = gate2.advisors` (from the effective config; the default list is `["/claude-c-suite:cso", "/claude-c-suite:qa-lead", "/claude-c-suite:cto"]` per config.md, but the user can override). **If step 4a filtered `ADVISORS` (because `AUTO_SKIP` or `gate2.diff_scope_skip.enabled` matched a docs-only diff), use the post-filter list — `SKIPPED_ADVISORS` entries are NOT invoked.** Iterate `ADVISORS` to invoke; do **not** hardcode the default skill names in this section — operators who customize `gate2.advisors` must see their custom list invoked, not the defaults.
@@ -289,6 +305,35 @@ Capture each output: `AUDIT_OUT` for the binary gate, `ADVISOR_OUTS["<full_confi
 In either mode, if any **advisor** skill is not installed, mark its slot `unknown`, print a warning, and continue with whichever did return.
 
 **Binary gate availability** (only when `gate2.binary_gate` is non-null): if the configured binary gate skill is unavailable at invocation time (not installed, errors out), treat the binary gate as `unknown` (not pass) and require `FORCE` to continue. This is the "binary gate is configured but the skill broke" path — distinct from the "binary gate is null by design" path which doesn't exercise the FORCE rule at all.
+
+#### 6c. Code-reviewer agent path (`GATE2_MODE == "code-reviewer-agent"`)
+
+This sub-step fully replaces steps 6 (battery), 7 (binary gate), and 8 (advisor aggregation) for this run.
+
+Invoke the **`feature-dev:code-reviewer` agent via the Agent tool** (`subagent_type: "feature-dev:code-reviewer"`), passing the gate2 prompt block from step 5 (issue, branch, commits ahead, diffstat, diff) as the agent's task. The agent has its own context window and reads changed files via its own tools — the prompt block scopes it to this branch's change. Capture the agent's final message as `CR_OUT`.
+
+**Verdict mapping — marker heuristic** (per issue #66; same heuristic-fallback spirit as step 7 path 3). Scan `CR_OUT` case-insensitively for high-priority markers:
+
+`must fix`, `must-fix`, `blocker`, `critical`, `high-priority`, `high priority`
+
+- If **any** marker is present → `fail`.
+- Otherwise → `pass` (marker absence = pass; intentional per the issue's acceptance criteria).
+
+Map to the gate2 verdict contract and continue:
+
+- `pass` → `GATE2_VERDICT="green"` (step 8a HITL still applies before PR creation).
+- `fail` → `GATE2_VERDICT="red"` (step 9's red handling: abort PR creation unless `FORCE`, identical to a red advisor).
+
+Set the synthetic gate2 state, mirroring `auto-skip`'s synthetic-verdict pattern:
+
+- `AUDIT_VERDICT="skipped"` (no binary gate ran).
+- `gate2.reviewer="code-reviewer-agent"` (sentinel; state readers display it verbatim, same as the `diff-scope-skip` sentinel).
+- `ADVISOR_OUTS = {"code-reviewer-agent": CR_OUT}` and `ADVISOR_VERDICTS = {"code-reviewer-agent": "<green|red>"}` — so the recap, PR body, and `/gh-issue-driven:status` surface the single reviewer that ran.
+- For step 8a's Considerations block and step 9's recap, treat the **effective advisor list as `["code-reviewer-agent"]`** (display label `code-reviewer-agent`), and record `SKIPPED_ADVISORS = <full configured gate2.advisors list>` so status shows the cascade was bypassed by `--review=code-reviewer`.
+
+Write `CR_OUT` verbatim to the gate2 markdown file (the same path the cascade writes). Then continue to **step 8a** (HITL when `GATE2_VERDICT="green"`); if `GATE2_VERDICT="red"`, fall through to step 9's verdict handling.
+
+If the Agent tool errors or returns no usable output, treat it as `GATE2_VERDICT="unknown"` and require `FORCE` to continue (same posture as an unknown binary gate) — do **not** silently pass.
 
 ### 7. Binary gate verdict — the hard release gate (skipped in advisor-only mode)
 
@@ -376,10 +421,12 @@ Print a short `Considerations:` block showing the gate2 per-reviewer summary:
 ```
 Considerations:
   - Gate2: green
-  - <for each advisor in ADVISORS (config order):>
+  - <for each advisor in the effective advisor list (config order in cascade mode; the single ["code-reviewer-agent"] entry when gate2.reviewer == "code-reviewer-agent"):>
       • <display_label>: <ADVISOR_VERDICTS[advisor]>
   - <if AUDIT_VERDICT != "skipped": "audit: <AUDIT_VERDICT>">
 ```
+
+In `code-reviewer-agent` mode (step 6c), the effective advisor list is the synthetic `["code-reviewer-agent"]` — render that single line (`code-reviewer-agent: green`), not the bypassed `gate2.advisors` entries.
 
 When `lang != "en"`, produce the Considerations block in the language specified by `lang`.
 
@@ -422,6 +469,7 @@ Update the state file:
   },
   "skipped_advisors": ["<full_config_string>", ...],
   "diff_scope": "docs-only | mixed | null",
+  "reviewer": "cascade | code-reviewer-agent",
   "verdict": "<aggregate>",
   "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md",
   "ran_at": "<UTC ISO-8601>"
@@ -429,7 +477,9 @@ Update the state file:
 "phase": "gated"
 ```
 
-`skipped_advisors` is the list set by step 4a (empty `[]` when the diff-scope skip mechanism was disabled or did not match; the configured `docs_only_skip_advisors` list when it did match). `diff_scope` records which classification 4a produced (`"docs-only"` when all changed paths matched docs patterns, `"mixed"` when at least one did not, `null` when the step was skipped entirely because diff-scope skipping was not enabled). Both fields are read by `/gh-issue-driven:status` to render an accurate gate2 summary post-hoc.
+`reviewer` records which gate2 review path ran (step 4b): `"cascade"` (default — the binary-gate + advisor battery, including any auto-skip filtering) or `"code-reviewer-agent"` (the `--review=code-reviewer` path from step 6c, where the `feature-dev:code-reviewer` agent replaced the cascade). Absent/unknown values are treated as `"cascade"` by readers. When `reviewer="code-reviewer-agent"`, `advisor_verdicts` holds the single synthetic entry `{"code-reviewer-agent": "<green|red>"}` and `skipped_advisors` lists the bypassed configured advisors.
+
+`skipped_advisors` is the list set by step 4a (empty `[]` when the diff-scope skip mechanism was disabled or did not match; the configured `docs_only_skip_advisors` list when it did match; the full configured advisor list when step 6c's code-reviewer-agent path replaced the cascade). `diff_scope` records which classification 4a produced (`"docs-only"` when all changed paths matched docs patterns, `"mixed"` when at least one did not, `null` when the step was skipped entirely because diff-scope skipping was not enabled). Both fields are read by `/gh-issue-driven:status` to render an accurate gate2 summary post-hoc.
 
 The `advisor_verdicts` map is keyed by the **full config string** (e.g. `"/claude-c-suite:cso"`, `"/claude-c-suite:qa-lead"`, `"/claude-c-suite:cto"` for the default config; any custom advisor strings for non-default configs). Using the full config string avoids key collisions between advisors from different namespaces. This replaces the v1 schema's hardcoded `cso`/`qa_lead`/`cto` fields.
 

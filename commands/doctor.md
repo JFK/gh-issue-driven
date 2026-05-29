@@ -347,13 +347,13 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
              /plugin install kagura-memory@kagura-memory-cloud
      ```
 
-10. **Workflow plugin: `feature-dev`** (optional — enhances the implementation phase between `/start` and `/ship`)
+10. **Workflow plugin: `feature-dev`** (optional — enhances the implementation phase between `/start` and `/ship`; also provides the `code-reviewer` agent used by `/gh-issue-driven:ship --review=code-reviewer`)
    - Probe via plugin cache glob: `~/.claude/plugins/cache/claude-plugins-official/feature-dev*`.
    - Run the Plugin Metadata Resolution Procedure with:
      - `PMRP_GLOB=claude-plugins-official/feature-dev*`
      - `PMRP_SKILL=feature-dev`
      - `PMRP_OFFICIAL=true`
-   - If `PLUGIN_FOUND=false`: emit `⚠️  feature-dev: not installed — guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17`.
+   - If `PLUGIN_FOUND=false`: emit `⚠️  feature-dev: not installed — guided feature development (/feature-dev:feature-dev) will not be surfaced in /start step 17, and /gh-issue-driven:ship --review=code-reviewer will fall back to the gate2 cascade`.
    - Otherwise: emit the status line per the procedure's output format.
    - When `fix` flag is set AND missing, append:
      ```
