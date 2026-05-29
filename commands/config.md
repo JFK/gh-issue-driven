@@ -138,9 +138,8 @@ Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. **Caveat:** fully suppressing the delegated `/start`//ship`'s own green/yellow/Copilot prompts requires the `--autonomous` wiring tracked in **#74** — until that lands, `/goal` gates on `red` itself but the sub-commands still surface their own prompts (see goal.md's Implementation-status note). |
+| `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. **Caveat:** fully suppressing the delegated `/start` and `/ship`'s own green/yellow/Copilot prompts requires the `--autonomous` wiring tracked in **#74** — until that lands, `/goal` gates on `red` itself but the sub-commands still surface their own prompts (see goal.md's Implementation-status note). |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
-| `copilot_max_loops` | `10` | **Reserved — not yet honored.** `/goal` delegates the Copilot loop to `/ship`, which today bounds it with `copilot.max_loops`. This key is the intended per-`/goal`-run override; wiring it into `/ship`'s loop is a follow-up (tracked alongside #74). Until then it has no effect — set `copilot.max_loops` to tune the loop. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
 
@@ -277,8 +276,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
   },
   "goal": {
     "autonomy": "red-only",
-    "max_issues_per_run": 20,
-    "copilot_max_loops": 10
+    "max_issues_per_run": 20
   },
   "doctor": {
     "expected_origins": {

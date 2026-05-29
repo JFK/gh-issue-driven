@@ -43,7 +43,7 @@ The PR + Copilot review loop is **delegated to `/ship`** (step 5c) — `/goal` d
 
 The autonomy level only governs **verdict** gating. The milestone-missing precondition (step 1) and a delegated command aborting for a non-verdict reason always stop the run regardless of level — those are not verdicts and cannot be auto-resolved.
 
-> **Implementation status (read this):** truly suppressing the green/yellow/Copilot HITL prompts that `/start` and `/ship` raise from *their own* config requires passing them an `--autonomous=<level>` signal — that wiring is tracked in **#74** and is **not yet in place**. Until #74 lands, `/goal` still consumes each sub-command's verdict and applies the red-only policy, but the delegated `/start`//ship` will surface their own green/yellow/Copilot-invocation prompts (you tap through them); the only verdict `/goal` itself gates on is `red`. Once #74 merges, `/goal` passes `--autonomous=<level>` and the green/yellow path is genuinely unattended. An env var cannot carry this signal (skills run in-context, not as subprocesses), which is why it is an explicit flag.
+> **Implementation status (read this):** truly suppressing the green/yellow/Copilot HITL prompts that `/start` and `/ship` raise from *their own* config requires passing them an `--autonomous=<level>` signal — that wiring is tracked in **#74** and is **not yet in place**. Until #74 lands, `/goal` still consumes each sub-command's verdict and applies the red-only policy, but the delegated `/start` and `/ship` will surface their own green/yellow/Copilot-invocation prompts (you tap through them); the only verdict `/goal` itself gates on is `red`. Once #74 merges, `/goal` passes `--autonomous=<level>` and the green/yellow path is genuinely unattended. An env var cannot carry this signal (skills run in-context, not as subprocesses), which is why it is an explicit flag.
 
 ## Steps
 
@@ -54,7 +54,7 @@ Parse `$ARGUMENTS`: extract the **milestone target** (everything that isn't a kn
 Load `~/.claude/gh-issue-driven-config.json` over the documented defaults. Extract:
 - `AUTONOMY` from `goal.autonomy` (default `"red-only"`); `force` overrides to `"unattended"` for this run.
 - `MAX_ISSUES` from `goal.max_issues_per_run` (default `20`) — a runaway backstop.
-- The Copilot loop cap is **`/ship`'s `copilot.max_loops`** (the loop is delegated, step 5c). `goal.copilot_max_loops` is reserved/not-yet-honored (see config.md) — do **not** read it as an active cap.
+- The Copilot loop cap is **`/ship`'s `copilot.max_loops`** (the loop is delegated, step 5c) — `/goal` does not define its own cap.
 - `LANG` from `lang` (default `"en"`).
 - The Copilot loop tuning (`copilot.poll_interval_sec`, `copilot.max_wait_sec`, `copilot.silent_no_op_threshold_polls`) is reused as-is from the effective config.
 
@@ -84,7 +84,7 @@ Record the ordered list as `WORKLIST`. If `len(WORKLIST) > MAX_ISSUES`, process 
 
 ### 3. Initialize or resume the run state file
 
-Per-milestone-run state lives in a **dedicated `goal/` subdirectory** so it never collides with the per-branch state files that `/gh-issue-driven:status` (`all` mode) and `/gh-issue-driven:doctor` (stale-state cleanup) scan at the top level of the cache dir — a top-level `goal-*.json` would be mis-read as a bogus branch. Path: `~/.claude/cache/gh-issue-driven/goal/<repo-flat>-<milestone-flat>.json` (`<repo-flat>` = `owner/repo` with `/`→`-`). Create `~/.claude/cache/gh-issue-driven/goal/` with `chmod 0700` (the parent already gets `0700` from the other commands).
+Per-milestone-run state lives in a **dedicated `goal/` subdirectory** so it never collides with the per-branch state files that `/gh-issue-driven:status` (`all` mode) and `/gh-issue-driven:doctor` (stale-state cleanup) scan at the top level of the cache dir — a top-level `goal-*.json` would be mis-read as a bogus branch. Path: `~/.claude/cache/gh-issue-driven/goal/<repo-flat>-m<milestone-number>.json` (`<repo-flat>` = `owner/repo` with `/`→`-`; the milestone **number** — a validated integer — anchors the filename, **not** the freeform milestone title, so no untrusted external string enters the path). Validate `<milestone-number>` against `^[1-9][0-9]{0,8}$` before interpolation. Create `~/.claude/cache/gh-issue-driven/goal/` with `chmod 0700` (the parent already gets `0700` from the other commands).
 
 Schema:
 
@@ -129,7 +129,7 @@ Review: delegated to /ship (gate2 + PR + Copilot loop, bounded by copilot.max_lo
 
 ### 5. Per-issue loop
 
-For each issue in `WORKLIST` not already `done`, re-read the state file, set its `status="in_progress"`, then run the phases. `/goal` consumes each delegated command's verdict and applies the red-only policy (5a/5c) — gating on `red` itself (step 5d) and treating green/yellow as continue. **Caveat until #74 lands:** `/goal` cannot yet *suppress* `/start`//ship`'s own green/yellow/Copilot-invocation prompts (they own those `AskUserQuestion` gates and there is no bypass signal yet — see the Implementation-status note in the Autonomy model). So today the operator still taps through those sub-command confirmations; `/goal`'s contribution is the milestone-wide orchestration, ordering, resumable state, and the red-verdict gate. When #74 wires `--autonomous`, the green/yellow path becomes truly unattended.
+For each issue in `WORKLIST` not already `done`, re-read the state file, set its `status="in_progress"`, then run the phases. `/goal` consumes each delegated command's verdict and applies the red-only policy (5a/5c) — gating on `red` itself (step 5d) and treating green/yellow as continue. **Caveat until #74 lands:** `/goal` cannot yet *suppress* `/start` and `/ship`'s own green/yellow/Copilot-invocation prompts (they own those `AskUserQuestion` gates and there is no bypass signal yet — see the Implementation-status note in the Autonomy model). So today the operator still taps through those sub-command confirmations; `/goal`'s contribution is the milestone-wide orchestration, ordering, resumable state, and the red-verdict gate. When #74 wires `--autonomous`, the green/yellow path becomes truly unattended.
 
 #### 5a. Design gate (start)
 
@@ -157,7 +157,7 @@ Consume `/ship`'s outcome from its branch state file:
 
 `/goal` **defers entirely to `/ship`'s existing Copilot loop and its recorded state values** — it does **not** run a second loop, apply its own cap, or re-request Copilot itself. The loop is bounded by `/ship`'s own `copilot.max_loops` and tuning; `/goal` only reads `review.copilot.exit_reason` to decide `done` vs `needs_human`.
 
-> **Follow-ups (NOT this command's behavior — improvements to `/ship`'s loop, found dogfooding this session):** `/ship`'s Copilot loop should (a) **explicitly re-request** `gh pr edit <pr> --add-reviewer @copilot` after open and each push (Mode A auto-trigger proved unreliable), and (b) **dedup** Copilot's duplicate inline comments before counting actionable findings. The `goal.copilot_max_loops` config key is **reserved** for a future `/ship`-loop override (wired alongside #74); today the loop honors `copilot.max_loops`. None of these are implemented in `/goal` — it simply consumes `/ship`'s result.
+> **Follow-ups (NOT this command's behavior — improvements to `/ship`'s loop, found dogfooding this session):** `/ship`'s Copilot loop should (a) **explicitly re-request** `gh pr edit <pr> --add-reviewer @copilot` after open and each push (Mode A auto-trigger proved unreliable), and (b) **dedup** Copilot's duplicate inline comments before counting actionable findings. A per-`/goal`-run loop-cap override could be added alongside #74; today the loop honors `/ship`'s `copilot.max_loops`. None of these are implemented in `/goal` — it simply consumes `/ship`'s result.
 
 #### 5d. Red-verdict HITL (the only interactive stop)
 
