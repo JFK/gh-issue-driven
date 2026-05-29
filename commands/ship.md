@@ -2,7 +2,7 @@
 description: Phase 2 of gh-issue-driven — runs gate2 (audit + cso + qa-lead + cto in parallel), creates the PR, drives a Copilot review loop up to 5 iterations, and saves session knowledge to Kagura Memory.
 arguments:
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR), 'auto-skip' (skip gate2 advisors that don't apply to the diff scope — see `gate2.diff_scope_skip` config), '--review=<target>' (replace the gate2 advisor cascade with an alternate reviewer; initial target 'code-reviewer' → the feature-dev:code-reviewer agent)."
+    description: "Optional space-separated flags: 'dry-run' (skip push/PR/loop), 'force' (bypass red advisor verdicts — does NOT bypass audit fail), 'no-copilot' (skip the post-PR review entirely — legacy alias for review.provider=none), 'draft' (open the PR as draft), 'resume' (skip steps 3-12, jump to review on an already-open PR), 'auto-skip' (skip gate2 advisors that don't apply to the diff scope — see `gate2.diff_scope_skip` config), '--review=<target>' (replace the gate2 advisor cascade with an alternate reviewer; initial target 'code-reviewer' → the feature-dev:code-reviewer agent), '--autonomous[=<level>]' (suppress the gate2 green/yellow HITL and the Copilot-invocation HITL for unattended operation — level is red-only|unattended|attended, bare flag means red-only; under red-only a red gate2 verdict is persisted to state and control returns to the caller without aborting; mainly used by /goal)."
     required: false
 ---
 
@@ -127,6 +127,8 @@ This ensures all downstream steps can use `state.issues` uniformly regardless of
 ### 2. Load configuration and parse flags
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Parse `$ARGUMENTS` into `DRY_RUN`, `FORCE`, `NO_COPILOT`, `DRAFT`, `RESUME`, `AUTO_SKIP` booleans. Reject unknown flags.
+
+`--autonomous[=<level>]` (default unset → `AUTONOMOUS_LEVEL=null`, `AUTONOMOUS=false`) suppresses ship.md's interactive HITL gates for unattended operation. Bare `--autonomous` means `red-only`; with a value, validate it against the level enum and reject an unrecognized value: `[[ "$AUTONOMOUS_LEVEL" =~ ^(red-only|unattended|attended)$ ]] || { echo "error: invalid --autonomous level '$AUTONOMOUS_LEVEL' (expected: red-only | unattended | attended)"; exit 10; }` (same enum as `goal.autonomy` and `start.md` step 1a). Derive `AUTONOMOUS = (AUTONOMOUS_LEVEL is "red-only" or "unattended")`. The third level `attended` is a **valid** value (it mirrors `goal.autonomy` so `/goal` can forward its level verbatim) but **disables suppression**: `AUTONOMOUS=false`, identical to the flag being absent. When `AUTONOMOUS` is true, it bypasses the step-8a gate2 green HITL, the step-9 yellow confirm, and the step-13c Copilot-invocation HITL. It is **orthogonal to `FORCE`**: `--autonomous` decides whether the prompts *fire*; `FORCE` decides whether a **red** gate2 verdict *proceeds* (and `FORCE` still never bypasses a `gate2.binary_gate` `fail`). `/goal` passes `--autonomous=red-only` alone (red gate2 stops via persist-and-return, step 9) or `--autonomous=unattended force` together (red gate2 auto-proceeds). **Backward-compat**: absent flag → `AUTONOMOUS=false` → every HITL gate fires exactly as before (byte-identical to v0.9.x for direct `/ship` users).
 
 `AUTO_SKIP` opts in to gate2 diff-scope skipping for this invocation only. The config key `gate2.diff_scope_skip.enabled` (default `false`) is the persistent equivalent; the flag overrides the config to `true` for one run. Backward-compat: when neither the flag nor the config enables it, gate2 behavior is byte-identical to v0.8.0.
 
@@ -414,7 +416,9 @@ If `ADVISOR_OUTS` is empty (no advisors configured or all skills unavailable), s
 
 #### 8a. HITL confirmation on green verdict
 
-This sub-step runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is computed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
+**Autonomous bypass**: when `AUTONOMOUS` is `true` (any level), **skip the `AskUserQuestion` entirely and continue to step 9** — log one line `autonomous(<level>): gate2 green auto-continued`. The autonomy contract replaces the interactive confirm. The rest of this sub-step does not apply under `AUTONOMOUS`.
+
+This sub-step otherwise runs only when `GATE2_VERDICT` is `green` AND `gate2.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is computed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
 
 Print a short `Considerations:` block showing the gate2 per-reviewer summary:
 
@@ -443,9 +447,14 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 ### 9. Verdict handling
 
-- **green** → continue silently to step 10. (HITL was presented in step 8a if `gate2.green_continue_requires_confirm` is `true`.)
-- **yellow** → print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
-- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the per-reviewer findings printed.
+- **green** → continue silently to step 10. (HITL was presented in step 8a if `gate2.green_continue_requires_confirm` is `true`, or auto-continued there when `AUTONOMOUS`.)
+- **yellow** →
+  - **When `AUTONOMOUS` is `true`**: auto-accept and continue to step 10 — do **not** present the `AskUserQuestion`. Log one line `autonomous(<level>): gate2 yellow auto-accepted`. (The caller, e.g. `/goal`, records `yellow_auto_accepted += "gate2"` from the persisted verdict.)
+  - **Otherwise**: print the per-reviewer summary table, then ask via AskUserQuestion: "Gate2 returned yellow. Continue with PR creation?" with options "Yes, ship it" / "No, abort". On abort, save state with `phase=gated` and exit cleanly.
+- **red** →
+  - **`FORCE` is true** → log a loud warning and continue to step 10 (the red verdict is carried into the state file by step 10's normal write). Note `FORCE` still does **not** override a `gate2.binary_gate` `fail` — that path already hard-aborted in step 7 (persisting `gate2.verdict=red` before exit).
+  - **`AUTONOMOUS` is true AND `FORCE` is false** (the `red-only`/`attended` path — red must stop, but unattended runs cannot block on an interactive prompt) → **persist-and-return instead of aborting**: run step 10's state persist now (write `gate2.verdict=red`, `phase=gated`, the per-reviewer block, and the gate2 markdown), print the per-reviewer findings, then **return control cleanly (exit 0)** without creating the PR. This mirrors the binary-gate `fail` persist-before-exit behavior (step 7) and is the behavior `/goal` step 5c/5d depends on: it reads `gate2.verdict=red` from the state file and runs its in-loop red HITL rather than catching a non-verdict abort. Log `autonomous(<level>): gate2 red — verdict persisted, returning control (no PR created)`.
+  - **Otherwise** (interactive, not autonomous, not force) → abort with the per-reviewer findings printed. (Unchanged legacy behavior — no PR created.)
 
 ### 10. Persist gate2 state and markdown
 
@@ -703,6 +712,8 @@ Skip this sub-step based on one of two cases:
 **Case B — re-entry, prior confirmation exists**: skip the prompt **but carry forward the prior confirmation**. Read `review.copilot.hitl_confirmed_at` and `review.copilot.hitl_decision` from the existing state file and set the in-memory values accordingly: `HITL_DECISION=<prior hitl_decision>`, `HITL_CONFIRMED_AT=<prior hitl_confirmed_at>`. Step 14.g will then write the same values back, preserving the prior confirmation record. **Do NOT set HITL_CONFIRMED_AT=null here** — that would clobber the prior confirmation on the next state write and re-enable prompting on subsequent resumes (self-defeating the re-entry guard). Applies when:
 
 4. The existing state file already has `review.copilot.hitl_confirmed_at` set to a non-null value (re-entry guard — prevents a second prompt on `/gh-issue-driven:ship resume` after the operator already confirmed in a prior invocation)
+
+**Autonomous bypass** (checked after Case A and Case B): if `AUTONOMOUS` is `true` and neither Case A nor Case B already skipped this sub-step (i.e. the prompt would otherwise fire — `REVIEW_PROVIDER` is `copilot`/`both`, not `DRY_RUN`, `copilot.hitl_confirm_invocation=true`, and no prior confirmation), do **not** prompt — treat it as confirmed: set `HITL_CONFIRMED=true`, `HITL_DECISION="confirmed"`, `HITL_CONFIRMED_AT=<current UTC ISO-8601>` in-memory and continue to step 14. The autonomy contract is itself the operator's standing "yes, run the loop", so the Copilot loop runs unattended and `hitl_decision="confirmed"` is recorded (so a later `silent_no_op` gives the Copilot-invoked-but-silent hint, not the setup hint). Log `autonomous(<level>): Copilot-invocation HITL auto-confirmed`.
 
 Otherwise, ask the operator via the **AskUserQuestion tool**. Construct the question text as follows (Layer B — Claude translates at runtime when `lang != "en"`):
 

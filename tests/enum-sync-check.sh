@@ -50,21 +50,43 @@ HITL_DECISION_VALUES=(
   "declined"
 )
 
+# autonomy level: the --autonomous=<level> flag enum, mirrored from
+# goal.autonomy. Must stay identical across goal.md (the source of truth)
+# and the two delegated commands that parse the flag (start.md, ship.md).
+# Added with #74 (--autonomous HITL suppression).
+AUTONOMY_LEVEL_VALUES=(
+  "red-only"
+  "unattended"
+  "attended"
+)
+
 FILES=(
   "$REPO_ROOT/commands/config.md"
   "$REPO_ROOT/commands/ship.md"
   "$REPO_ROOT/commands/review.md"
 )
 
+# The autonomy enum lives in a different set of files than exit_reason /
+# hitl_decision: it is defined in goal.md and consumed by start.md + ship.md.
+# review.md and config.md do not parse the flag, so they are not checked for it.
+AUTONOMY_FILES=(
+  "$REPO_ROOT/commands/goal.md"
+  "$REPO_ROOT/commands/start.md"
+  "$REPO_ROOT/commands/ship.md"
+)
+
 PASS=0
 FAIL=0
 
+# check_enum reads the file list from the global CHECK_FILES array (set by the
+# caller before each invocation) so different enums can be checked against
+# different file sets without a nameref (portable to bash 3.x / macOS).
 check_enum() {
   local enum_name="$1"
   shift
   local values=("$@")
   for v in "${values[@]}"; do
-    for f in "${FILES[@]}"; do
+    for f in "${CHECK_FILES[@]}"; do
       local base
       base="$(basename "$f")"
       if grep -Fq -- "$v" "$f"; then
@@ -78,8 +100,12 @@ check_enum() {
   done
 }
 
+CHECK_FILES=("${FILES[@]}")
 check_enum "exit_reason"   "${EXIT_REASON_VALUES[@]}"
 check_enum "hitl_decision" "${HITL_DECISION_VALUES[@]}"
+
+CHECK_FILES=("${AUTONOMY_FILES[@]}")
+check_enum "autonomy_level" "${AUTONOMY_LEVEL_VALUES[@]}"
 
 echo "---"
 echo "$PASS in sync / $FAIL drifted / $((PASS + FAIL)) total"
@@ -89,7 +115,9 @@ if [ "$FAIL" -ne 0 ]; then
   echo "To fix: ensure every value in EXIT_REASON_VALUES / HITL_DECISION_VALUES"
   echo "at tests/enum-sync-check.sh appears in all files listed in FILES (config.md"
   echo "Layer C list, ship.md schema template + prose, review.md schema template"
-  echo "+ exit conditions). Also manually review commands/status.md for any"
-  echo "display-level updates the mechanical check does not cover."
+  echo "+ exit conditions). For AUTONOMY_LEVEL_VALUES, ensure every level appears"
+  echo "in all AUTONOMY_FILES (goal.md, start.md, ship.md). Also manually review"
+  echo "commands/status.md for any display-level updates the mechanical check"
+  echo "does not cover."
   exit 1
 fi
