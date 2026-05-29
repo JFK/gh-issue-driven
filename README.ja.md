@@ -14,7 +14,7 @@
 graph LR
     P["/propose"] -.-> I[Issue #N]
     I --> S["/start<br/>Gate1 設計"]
-    S --> IMP["実装 + /simplify"]
+    S --> IMP["実装 + /code-review"]
     IMP --> SH["/ship<br/>Gate2 + Copilot"]
     SH --> T["/tag<br/>リリース儀式"]
     T --> R[GitHub Release]
@@ -31,8 +31,8 @@ graph LR
 ```
 
 1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate 1**(設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション)を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
-2. _(あなたがコードを書き、`/simplify` で diff をレビュー)_
-3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)、PR 作成、**プラガブルな事後レビューループ**(Copilot / `/code-review` / both — `review.provider` で設定可能)を自動実行。Copilot ループに入る直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
+2. _(あなたがコードを書き、ビルトインの `/code-review` で diff をレビュー)_
+3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)、PR 作成、**プラガブルな事後レビューループ**(Copilot / `code-review:code-review` プラグイン / both — `review.provider` で設定可能)を自動実行。Copilot ループに入る直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
 4. **`/gh-issue-driven:tag <version>`** — リリース儀式: milestone の closed issues をラベルごとにグルーピングしてリリースノート生成、`plugin.json` + `marketplace.json` の version bump、`CHANGELOG.md` 更新、コミット、annotated tag、`--follow-tags` で push、GitHub Release 作成。`dry-run` ですべてを事前プレビュー可能(ファイル・git・GitHub を一切触らない)。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、初回実行時は **context 自動検出**で設定不要。issue ごとの学びが永続化されます。
@@ -71,7 +71,7 @@ graph LR
 /gh-issue-driven:doctor          # 初回環境チェック (ステップ0 の確認 prompt も走る)
 /gh-issue-driven:start 142       # フェーズ1（単一 issue）
 /gh-issue-driven:start 4 12 20   # 複数 issue を1ブランチにまとめることも可能
-# ... 実装、その後 /simplify で diff レビュー ...
+# ... 実装、その後 /code-review で diff レビュー ...
 /gh-issue-driven:ship            # フェーズ2 (gate2 + Copilot ループ)
 # ... PR が main にマージされ、milestone が release ready になったら ...
 /gh-issue-driven:tag 0.3.0 dry-run   # フェーズ3 プレビュー
