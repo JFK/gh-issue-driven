@@ -132,6 +132,17 @@ Opt-in mechanism that lets `/gh-issue-driven:ship` skip irrelevant gate2 advisor
 
 **When NOT to enable**: if your repo treats `docs/` as security-sensitive (e.g. published threat models, secret-management docs that could leak credentials when edited), keep the default `false`. Skipping `cso` is appropriate only when docs changes carry no security review obligation.
 
+### `goal.*`
+
+Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. **Caveat:** fully suppressing the delegated `/start` and `/ship`'s own green/yellow/Copilot prompts requires the `--autonomous` wiring tracked in **#74** — until that lands, `/goal` gates on `red` itself but the sub-commands still surface their own prompts (see goal.md's Implementation-status note). |
+| `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
+
+The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
+
 ### `memory.context_id`
 
 Accepts three forms — in priority order of recommendation:
@@ -262,6 +273,10 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "pm_skill": "/claude-c-suite:pm",
     "dedup_max_results": 10,
     "yellow_continue_requires_confirm": true
+  },
+  "goal": {
+    "autonomy": "red-only",
+    "max_issues_per_run": 20
   },
   "doctor": {
     "expected_origins": {

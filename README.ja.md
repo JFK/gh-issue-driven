@@ -93,6 +93,7 @@ graph LR
 | `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
+| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装 → `/code-review` → `ship`（gate2 + PR + Copilot ループ + session-summary）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。_(green/yellow を完全無停止にする＝委譲先 start/ship の prompt 抑制は #74 で配線中。それまでは sub-command の prompt が出ます。)_ マージも default branch への push もしません。フラグ: `dry-run`, `force`, `resume` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |
