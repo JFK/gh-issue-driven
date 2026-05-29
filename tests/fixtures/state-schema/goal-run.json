@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "repo": "JFK/gh-issue-driven",
+  "milestone": {"number": 10, "title": "v0.10.0"},
+  "autonomy": "red-only",
+  "worklist": [67, 69, 66, 68],
+  "issues": {
+    "67": {
+      "status": "done",
+      "branch": "67-docs/migrate-simplify-to-code-review",
+      "pr": 70,
+      "gate1": "green",
+      "gate2": "green",
+      "copilot_exit": "no_actionable_feedback",
+      "yellow_auto_accepted": [],
+      "note": null
+    },
+    "68": {
+      "status": "needs_human",
+      "branch": "68-feat/goal-milestone-orchestrator",
+      "pr": 73,
+      "gate1": "green",
+      "gate2": "green",
+      "copilot_exit": "max_loops",
+      "yellow_auto_accepted": ["gate2"],
+      "note": "Copilot loop hit max_loops with unresolved feedback"
+    }
+  },
+  "started_at": "2026-05-29T05:00:00Z",
+  "updated_at": "2026-05-29T06:30:00Z"
+}
