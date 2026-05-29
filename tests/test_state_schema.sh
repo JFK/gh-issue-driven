@@ -87,6 +87,34 @@ check "$F" "hitl-disabled: hitl_confirmed_at" '.review.copilot.hitl_confirmed_at
 # v1/v2 compatibility: same fallback path as status.md all-mode footer
 check "$F" "hitl-disabled: v2-compat check"   '(.review.copilot.exit_reason // .copilot.exit_reason)' "silent_no_op"
 
+# --- start autonomous-red (persist-and-return: red gate1 under --autonomous, no branch) ---
+# Locks the #74 persist-and-return contract: under --autonomous (no force), a red
+# gate1 verdict is written to state and control returns rather than aborting, so
+# /goal can read the verdict. phase stays "started" (pre-branch) and worktree_path
+# is null — no branch was created.
+F="$FIXTURE_DIR/start-autonomous-red.json"
+check "$F" "start-auto-red: schema_version"    '.schema_version'           "2"
+check "$F" "start-auto-red: phase"             '.phase'                    "started"
+check "$F" "start-auto-red: gate1 verdict"     '.gate1.verdict'            "red"
+check "$F" "start-auto-red: no branch created" '.worktree_path'           "null"
+check "$F" "start-auto-red: gate1 block full"  '.gate1 | has("reviewer") and has("escalated_to") and has("summary_path") and has("ran_at")' "true"
+check "$F" "start-auto-red: no PR"             '.pr // "absent"'           "absent"
+# phase must be a valid enum value (pre-branch sentinel)
+check "$F" "start-auto-red: phase enum valid"  '.phase as $p | (["started","designed","gated","pr_open","shipped","done"] | index($p)) != null' "true"
+
+# --- ship autonomous-red (persist-and-return: red gate2 under --autonomous, no PR) ---
+# Locks the #74 persist-and-return contract for /ship: a red gate2 aggregate under
+# --autonomous (no force) is persisted with phase=gated and pr=null, mirroring the
+# binary_gate-fail persist-before-exit path, so /goal reads gate2.verdict from state.
+F="$FIXTURE_DIR/ship-autonomous-red.json"
+check "$F" "ship-auto-red: phase"              '.phase'                    "gated"
+check "$F" "ship-auto-red: gate2 verdict"      '.gate2.verdict'           "red"
+check "$F" "ship-auto-red: no PR created"      '.pr'                       "null"
+check "$F" "ship-auto-red: advisor red present" '[.gate2.advisor_verdicts[] | select(. == "red")] | length > 0' "true"
+check "$F" "ship-auto-red: gate2 audit skipped" '.gate2.audit'            "skipped"
+# phase must be a valid enum value (post-gate2, pre-PR sentinel)
+check "$F" "ship-auto-red: phase enum valid"   '.phase as $p | (["started","designed","gated","pr_open","shipped","done"] | index($p)) != null' "true"
+
 # --- goal-run state (Phase G milestone orchestrator) ---
 F="$FIXTURE_DIR/goal-run.json"
 check "$F" "goal-run: schema_version"          '.schema_version'                       "1"
