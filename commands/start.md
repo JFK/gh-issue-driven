@@ -963,7 +963,7 @@ Check the current conversation's system-reminder skill list for the presence of 
 
 **Review skill** (run before shipping):
 
-- `/code-review` — the Claude Code skill for reviewing the working diff (effort levels low/medium/high/max, `--fix`).
+- `/code-review` — the Claude Code skill for reviewing the **working-tree diff** before `/ship` (no PR required yet; effort levels low/medium/high/max, `--fix`).
 
 For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills.
 
@@ -984,7 +984,7 @@ Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Im
 
 #### 17d. Respect `lang` setting
 
-When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/code-review`, `/ship`) stay as-is (they are command identifiers, not prose).
+When `lang != "en"`, produce the entire implementation guidance block (gate1 suggestions, suggested workflow) in the language specified by `lang`. The skill names (`/feature-dev`, `/superpowers:*`, `/code-review`, `/ship`) stay as-is (they are command identifiers, not prose).
 
 ### 18. HITL: choose next action
 
@@ -1058,7 +1058,7 @@ After step 18 completes (regardless of which branch), `/start` is done. The stat
 
 #### 18f. Respect `lang` setting
 
-When `lang != "en"`, produce the AskUserQuestion question text, all three option labels, and the acknowledgement lines in the language specified by `lang`. Skill names (`/feature-dev`, `/code-review`, `/ship`) remain as-is.
+When `lang != "en"`, produce the AskUserQuestion question text, all three option labels, and the acknowledgement lines in the language specified by `lang`. Skill names (`/feature-dev`, `/superpowers:*`, `/code-review`, `/ship`) remain as-is.
 
 ## Failure modes
 

@@ -31,7 +31,7 @@ graph LR
 ```
 
 1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate 1**(設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション)を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
-2. _(あなたがコードを書き、`/code-review` で diff をレビュー)_
+2. _(あなたがコードを書き、`/code-review` で作業ツリーの diff をレビュー — `/ship` で PR を作る前の事前レビュー)_
 3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)、PR 作成、**プラガブルな事後レビューループ**(Copilot / `/code-review` / both — `review.provider` で設定可能)を自動実行。Copilot ループに入る直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
 4. **`/gh-issue-driven:tag <version>`** — リリース儀式: milestone の closed issues をラベルごとにグルーピングしてリリースノート生成、`plugin.json` + `marketplace.json` の version bump、`CHANGELOG.md` 更新、コミット、annotated tag、`--follow-tags` で push、GitHub Release 作成。`dry-run` ですべてを事前プレビュー可能(ファイル・git・GitHub を一切触らない)。
 
