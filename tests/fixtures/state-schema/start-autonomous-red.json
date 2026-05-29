@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "issues": [
+    {
+      "number": 88,
+      "title": "feat: example issue that gate1 red-flags under autonomous run",
+      "url": "https://github.com/JFK/gh-issue-driven/issues/88",
+      "labels": ["enhancement"]
+    }
+  ],
+  "issue_number": 88,
+  "issue_title": "feat: example issue that gate1 red-flags under autonomous run",
+  "issue_url": "https://github.com/JFK/gh-issue-driven/issues/88",
+  "repo": "JFK/gh-issue-driven",
+  "branch": "88-feat/example-issue-that-gate1-red-flags-und",
+  "branch_type": "feat",
+  "is_batch": false,
+  "worktree_path": null,
+  "started_at": "2026-05-29T12:00:00Z",
+  "phase": "started",
+  "gate1": {
+    "reviewer": "ask",
+    "escalated_to": null,
+    "verdict": "red",
+    "summary_path": "~/.claude/cache/gh-issue-driven/88-feat-example-issue-that-gate1-red-flags-und.gate1.md",
+    "ran_at": "2026-05-29T12:00:00Z"
+  },
+  "plan": null,
+  "gate2": null,
+  "pr": null,
+  "copilot": null,
+  "dry_run": false
+}

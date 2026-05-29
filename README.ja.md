@@ -88,12 +88,12 @@ graph LR
 
 | コマンド | フェーズ | 動作 |
 |---|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>` |
-| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer` |
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/goal` が使用） |
+| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + Copilot 起動 HITL を抑制。主に `/goal` が使用） |
 | `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
-| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装 → `/code-review` → `ship`（gate2 + PR + Copilot ループ + session-summary）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。_(green/yellow を完全無停止にする＝委譲先 start/ship の prompt 抑制は #74 で配線中。それまでは sub-command の prompt が出ます。)_ マージも default branch への push もしません。フラグ: `dry-run`, `force`, `resume` |
+| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装 → `/code-review` → `ship`（gate2 + PR + Copilot ループ + session-summary）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + Copilot 起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。フラグ: `dry-run`, `force`, `resume` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |

@@ -5,7 +5,7 @@ arguments:
     description: "One or more GitHub issue identifiers (number, full URL, or owner/repo#number). Multiple IDs create a batch branch. Required (at least one)."
     required: true
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--worktree' (create an isolated git worktree at .worktrees/<branch> instead of checking out in-place — delegates to superpowers:using-git-worktrees when installed), '--branch=<name>' (override the derived branch name; combines with --worktree to place the worktree at .worktrees/<override-branch-name>), 'auto-size' (skip gate1 entirely for issues that match the small-issue heuristic — see `gate1.size_heuristic` config), '--with-plan' (after gate1 verdict and before branch creation, invoke superpowers:writing-plans to generate an implementation plan persisted to the state file), '--parallel' (after the plan is generated, set the step 18 continue target to superpowers:subagent-driven-development for plan-driven parallel implementation; requires --with-plan)."
+    description: "Optional space-separated flags: 'dry-run' (skip branch creation, run gate1 only), 'force' (continue past a red gate1 verdict), 'no-memory' (skip Kagura Memory recall and session-start), '--worktree' (create an isolated git worktree at .worktrees/<branch> instead of checking out in-place — delegates to superpowers:using-git-worktrees when installed), '--branch=<name>' (override the derived branch name; combines with --worktree to place the worktree at .worktrees/<override-branch-name>), 'auto-size' (skip gate1 entirely for issues that match the small-issue heuristic — see `gate1.size_heuristic` config), '--with-plan' (after gate1 verdict and before branch creation, invoke superpowers:writing-plans to generate an implementation plan persisted to the state file), '--parallel' (after the plan is generated, set the step 18 continue target to superpowers:subagent-driven-development for plan-driven parallel implementation; requires --with-plan), '--autonomous[=<level>]' (suppress the gate1 green/yellow HITL prompts and the step-18 next-action prompt for unattended operation — level is red-only|unattended|attended, bare flag means red-only; under red-only a red verdict is persisted to state and control returns to the caller without aborting; mainly used by /goal)."
     required: false
 ---
 
@@ -55,6 +55,7 @@ Iterate over `$ARGUMENTS` tokens left-to-right. Each token is classified by **po
   - URL form: `^https://github\.com/.+/.+/issues/[0-9]+$`
   - Short form: `^[^/]+/[^#]+#[0-9]+$`
 - **`--branch=<name>` flag** — matches `^--branch=.+$`. Extract the value after `=` as `BRANCH_OVERRIDE`.
+- **`--autonomous[=<level>]` flag** — matches `^--autonomous(=.+)?$`. Bare `--autonomous` (no `=`) means level `red-only`. With a value, extract the text after `=` as `AUTONOMOUS_LEVEL`. (Validated against the level enum in step 1a.)
 - **Known flag** — one of: `dry-run`, `force`, `no-memory`, `--worktree`, `auto-size`, `--with-plan`, `--parallel`
 - **Unknown** — reject with a clear error listing valid flags and the multi-issue syntax.
 
@@ -84,12 +85,14 @@ Set booleans from flag tokens:
   - `WITH_PLAN=true` if `--with-plan` is present (default: `false`)
   - `PARALLEL=true` if `--parallel` is present (default: `false`)
   - `BRANCH_OVERRIDE` from `--branch=<value>` if present (default: `null`)
+  - `AUTONOMOUS_LEVEL` from `--autonomous[=<level>]` if present (default: `null`); bare `--autonomous` sets it to `red-only`. Derive `AUTONOMOUS = (AUTONOMOUS_LEVEL is "red-only" or "unattended")` — the single boolean downstream HITL-suppression steps read. The third level `attended` is a **valid** value (it mirrors `goal.autonomy` so `/goal` can forward its level verbatim) but **disables suppression**: `AUTONOMOUS=false`, so every HITL gate fires exactly as if the flag were absent. A `null` level (flag absent) likewise yields `AUTONOMOUS=false`.
 
 Flag interaction rules (validated here, before any downstream step reads them):
 
 - `--parallel` requires `--with-plan`. If `PARALLEL=true` and `WITH_PLAN=false`, abort with `error: --parallel requires --with-plan (subagent-driven-development consumes a plan as its input)`. Auto-enabling `--with-plan` was considered and rejected — operators who set `--parallel` without `--with-plan` likely misunderstand the workflow, and silently enabling another flag would mask that.
 - `auto-size` is per-invocation and overrides `gate1.size_heuristic.enabled` to `true` for this run only. The config key is the persistent equivalent; the flag is the one-off opt-in.
 - `auto-size` and `dry-run` compose normally — when both are set, the size heuristic runs and may short-circuit gate1, but no branch is created.
+- `--autonomous` and `force` are **orthogonal** and compose: `--autonomous` suppresses the green/yellow HITL *prompts* (and the step-18 next-action prompt) so the run is unattended; `force` decides whether a **red** verdict *proceeds*. `/goal` pairs them deliberately — it passes `--autonomous=red-only` alone (red stops: persist-and-return, see step 12), and `--autonomous=unattended force` together (red auto-proceeds). `--autonomous` alone never implies `force`; a red verdict under `--autonomous` without `force` does **not** proceed.
 
 #### 1a. Validate parsed arguments against allow-list
 
@@ -104,6 +107,7 @@ Allow-list (canonical definition for `start.md` — all downstream steps inherit
 | `OWNER` | `^[a-zA-Z0-9._-]{1,39}$` | Safe shell allow-list for the parsed owner token |
 | `REPO` | `^[a-zA-Z0-9._-]{1,100}$` | Safe shell allow-list for the parsed repo token |
 | `BRANCH_OVERRIDE` (if set) | `^[a-zA-Z0-9._/-]{1,100}$` **+** `git check-ref-format --branch` | Safe shell allow-list **plus** git's own ref-name rules (no `..`, no leading `.`, no `@{`, etc.) so `--branch=../foo` — which the regex alone permits — cannot escape `$REPO_ROOT/.worktrees/` in step 13b |
+| `AUTONOMOUS_LEVEL` (if set) | `^(red-only\|unattended\|attended)$` | Must be one of the three autonomy levels (same enum as `goal.autonomy`). An unrecognized value is rejected outright — silently ignoring it could leave the run interactive when the operator expected unattended (or vice versa). |
 
 Validation (run in a single Bash block immediately after step 1 normalizes all identifiers, before any later bash interpolation):
 
@@ -129,7 +133,13 @@ if [ -n "${BRANCH_OVERRIDE:-}" ]; then
   git check-ref-format --branch "$BRANCH_OVERRIDE" >/dev/null 2>&1 \
     || { echo "error: '--branch=$BRANCH_OVERRIDE' fails git check-ref-format (e.g. contains '..', leading '.', '@{', or other forbidden ref-name chars)"; exit 10; }
 fi
+if [ -n "${AUTONOMOUS_LEVEL:-}" ]; then
+  [[ "$AUTONOMOUS_LEVEL" =~ ^(red-only|unattended|attended)$ ]] \
+    || { echo "error: invalid --autonomous level '$AUTONOMOUS_LEVEL' (expected: red-only | unattended | attended)"; exit 10; }
+fi
 ```
+
+**Backward-compatibility note.** The flag is forward-additive: a `/start` build that predates this change classifies `--autonomous` as an **Unknown** flag (step 1.1) and rejects it. Because `/start` and `/goal` ship together in the same plugin version, a `/goal` that passes `--autonomous` is always paired with a `/start` that understands it — there is no mixed-version path in practice. Direct `/start` users who never pass the flag get `AUTONOMOUS_LEVEL=null` → `AUTONOMOUS=false` → **no behavior change** (every HITL gate fires exactly as before).
 
 Step 6 (branch name computation) produces a slug from these already-validated components via a deterministic algorithm (lowercase → replace non-alnum with `-` → collapse → truncate), so no additional branch-name validation is needed in `start.md` — the slug is safe by construction. `ship.md` validates its own branch name independently (see `ship.md` step 1a).
 
@@ -615,7 +625,9 @@ by the time `GATE1_OUTPUT` is set here, decline has already been escalated to `/
 
 #### 11a. HITL confirmation on green verdict
 
-This sub-step runs only when `GATE1_VERDICT` is `green` AND `gate1.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is parsed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
+**Autonomous bypass**: when `AUTONOMOUS` is `true` (i.e. level `red-only` or `unattended`; `attended` leaves `AUTONOMOUS=false` and is unaffected — its prompts fire normally), still extract `GATE1_KEY_SUGGESTIONS` as described below (step 17a reuses it), then **skip the `AskUserQuestion` entirely and continue to step 12** — log one line `autonomous(<level>): gate1 green auto-continued`. The autonomy contract replaces the interactive confirm; the operator (or `/goal`) opted into unattended green/yellow progression. The rest of this sub-step does not apply under `AUTONOMOUS`.
+
+This sub-step otherwise runs only when `GATE1_VERDICT` is `green` AND `gate1.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is parsed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
 
 Print a short `Considerations:` block showing the gate1 summary:
 
@@ -647,9 +659,14 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
 
 ### 12. Verdict handling
 
-- **green** → continue silently to step 12a (or directly to step 13 if `WITH_PLAN=false`). (HITL was presented in step 11a if `gate1.green_continue_requires_confirm` is `true`.)
-- **yellow** → print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
-- **red** → if `FORCE` is true, log a loud warning and continue. Otherwise abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns".
+- **green** → continue silently to step 12a (or directly to step 13 if `WITH_PLAN=false`). (HITL was presented in step 11a if `gate1.green_continue_requires_confirm` is `true`, or auto-continued there when `AUTONOMOUS`.)
+- **yellow** →
+  - **When `AUTONOMOUS` is `true`**: auto-accept and continue to step 12a/13 — do **not** present the `AskUserQuestion`. Log one line `autonomous(<level>): gate1 yellow auto-accepted`. (The caller, e.g. `/goal`, records `yellow_auto_accepted += "gate1"` from the persisted verdict.)
+  - **Otherwise**: print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
+- **red** →
+  - **`FORCE` is true** (e.g. `/goal` under `unattended`/`force` passes `force` alongside `--autonomous`) → log a loud warning and continue to step 12a/13. The red verdict is carried into the state file by the normal step-14 write.
+  - **`AUTONOMOUS` is true AND `FORCE` is false** (reached when `--autonomous` is active without `force` — typically `red-only`; `attended` never reaches here because it leaves `AUTONOMOUS=false` and takes the interactive path below. Red must stop, but an unattended run cannot block on an interactive prompt) → **persist-and-return instead of aborting**: **unless `DRY_RUN` is true**, write a partial state file at the normal path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`) using the same atomic temp+mv procedure as step 14, with `phase=started`, `gate1.verdict=red`, the full `gate1` block (reviewer/escalated_to/summary_path/ran_at), and **no branch created** (`worktree_path=null`; the branch name is recorded for reference but `git checkout -b` is **not** run); save the gate1 markdown (step 15). **When `DRY_RUN` is true, write neither the state file nor the gate1 markdown** — this honors step 14's dry-run contract (dry-run never creates persistent state); just print the findings and return. In both cases print the reviewer's findings, then **return control cleanly (exit 0)** — do not abort. This is the behavior `/goal` step 5d depends on (in a non-dry-run): it reads `gate1.verdict=red` from the state file and runs its in-loop red HITL (force-continue / skip / abort), rather than having to catch a non-verdict abort. Log `autonomous(<level>): gate1 red — verdict persisted, returning control (no branch created)` (or `… returning control (dry-run, no state written)` under `DRY_RUN`).
+  - **Otherwise** (interactive, not autonomous, not force) → abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns". No state file is written (unchanged legacy behavior).
 
 ### 12a. Generate the implementation plan (optional, `--with-plan`)
 
@@ -895,7 +912,7 @@ Branch  <branch>  (created from <default-branch>)
 Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
-Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])
+Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])[ — auto-accepted (autonomous: <level>)]   ← append the autonomous note when AUTONOMOUS and verdict is green/yellow
         — or — skipped (size-heuristic: <reason>)   ← when SIZE_HEURISTIC_SKIPPED
 <if WITH_PLAN=true AND PLAN_OUTPUT non-null:>
 Plan    <~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md>  (via /superpowers:writing-plans)
@@ -994,12 +1011,13 @@ After printing the recap and implementation guidance, give the operator an expli
 
 Skip step 18 entirely (return to prompt immediately) when **any** of the following hold:
 
+- `AUTONOMOUS` is true — the step-18 next-action prompt is itself a HITL gate, and an unattended run cannot block on it. Return control to the caller (e.g. `/goal`) immediately; the caller drives implementation (`/goal` does so in its own step 5b). Log one line `autonomous(<level>): skipping step-18 next-action prompt, returning control to caller`. This applies to the `red` persist-and-return path too — that path already exited cleanly in step 12 and never reaches here.
 - `DRY_RUN` is true — no branch was created, there is nothing to continue into.
-- `GATE1_VERDICT` is `red` AND `FORCE` is not true — already aborted in step 12, never reaches here.
+- `GATE1_VERDICT` is `red` AND `FORCE` is not true — already aborted (interactive) or persisted-and-returned (autonomous) in step 12, never reaches here.
 - `GATE1_VERDICT` is `yellow` AND the operator answered "No, abort" in step 12 — already exited.
 - `GATE1_VERDICT` is `green` AND the operator answered "No, abort" in step 11a — already exited.
 
-If `GATE1_VERDICT` is `unknown` (reviewer skills missing), step 18 still fires — the operator may still want to launch `/feature-dev` or get an implementation plan.
+If `GATE1_VERDICT` is `unknown` (reviewer skills missing) and `AUTONOMOUS` is false, step 18 still fires — the operator may still want to launch `/feature-dev` or get an implementation plan.
 
 #### 18b. Pick the "continue" target
 
