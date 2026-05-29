@@ -8,7 +8,9 @@
 
 > **GitHub issue 駆動開発のフルライフサイクルワークフロー: セッションコンテキストからの `propose` → 設計ゲート付き `start` → advisor + Copilot ゲート付き `ship`（全フェーズ境界に HITL 確認）→ リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、per-repo Kagura Memory 自動検出付き。**
 
-`gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインで、「issue #142 の作業を始める」を 1 本の再現可能な 3 フェーズワークフローに変えます:
+`gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインですが、本質は**オーケストレーション・ハーネス**です。Claude Code 自身のスキルやエージェント（設計レビュア、記憶リコール、`/code-review`、Copilot）を、各フェーズ境界で人間が確認できる 1 本の「Issue → Release」パイプラインに束ねる薄いメタ層です。コードジェネレータでも単発コマンドでもなく、それらのスキルをガバナンスゲートと記憶とともに*編成する*層です。
+
+「issue #142 の作業を始める」を 1 本の再現可能な 3 フェーズワークフローに変えます:
 
 ```mermaid
 graph LR
