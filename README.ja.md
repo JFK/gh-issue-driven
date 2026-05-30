@@ -288,7 +288,9 @@ Copilot が `--add-reviewer` の呼び出しを実際に受理したかどうか
 3. **終了条件**: `approved` / `no_actionable_feedback` / `max_loops` / `tests_failed` / `silent_no_op` (「confirmed されたが反応が無い」という真の anomaly を意味し、catch-all ではない)。
 4. actionable なコメントを `Edit` / `Bash` で適用。nit は skip。
 5. `copilot.run_tests_after_edits` が true ならローカルテスト実行。
-6. `fix: address Copilot review (loop N)` で commit、push、レビュー再依頼。
+6. `fix: address Copilot review (loop N)` で commit、push。
+7. **各 Copilot レビュースレッドへ返信**（`copilot.reply_to_threads`、デフォルト ON）: actionable なスレッドには `✅ Fixed in <sha>: …` を返信して **resolve**（`copilot.resolve_threads`、デフォルト ON、GraphQL `resolveReviewThread` mutation 経由）、non-actionable なスレッドには理由を返信して open のまま残す。返信/resolve は best-effort（失敗しても warning のみで loop は止めない）で、dry-run では skip。
+8. レビュー再依頼。
 
 **No** を選ぶと、state ファイルに `exit_reason="hitl_declined"` を書き、PR を draft のままにして loop を clean に skip します。準備ができたら(例: Web UI で Copilot を trigger した後、draft から promote した後)、`/gh-issue-driven:review` で loop を再実行できます ― decline は「今回は skip」の意味であり「二度と聞くな」ではないため、ゲートは再度 prompt します。
 
@@ -366,6 +368,8 @@ skill が見つからない場合の degrade：
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
 | `copilot.max_wait_sec` | `900` | 1ループあたりの最大待機時間 |
 | `copilot.run_tests_after_edits` | `true` | Copilot 修正後にローカルテスト実行 |
+| `copilot.reply_to_threads` | `true` | 各 Copilot レビュースレッドへ in-thread 返信（actionable は `✅ Fixed in <sha>`、non-actionable は理由）|
+| `copilot.resolve_threads` | `true` | 返信後に actionable スレッドのみ resolve（GraphQL `resolveReviewThread`）。non-actionable は open のまま |
 
 ### Copilot レビューループの最適化
 
