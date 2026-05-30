@@ -880,8 +880,7 @@ UNRESOLVED=$(echo "$THREADS_JSON" | jq -c '
   | select(.isResolved==false)
   | select((.comments.nodes[0].author.login // "") | test("[Cc]opilot"))
   | {threadId:.id, commentId:.comments.nodes[0].databaseId,
-     path:.comments.nodes[0].path, line:.comments.nodes[0].line, body:.comments.nodes[0].body}'
-  2>/dev/null || echo '')
+     path:.comments.nodes[0].path, line:.comments.nodes[0].line, body:.comments.nodes[0].body}' 2>/dev/null || echo '')
 ```
 
 Carry each thread's `threadId` and `commentId` through the disposition decision below — 14.f needs them to reply and resolve.
