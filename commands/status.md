@@ -91,6 +91,7 @@ Review  provider: <review.provider>
         Exit:      <review.copilot.exit_reason>        ← (omit line if absent / loop still in progress)
         HITL:      <review.copilot.hitl_decision>      ← (omit line if null or absent — backward compat with v0.2.x state files)
         HITL confirmed: <relative time of hitl_confirmed_at>  ← (omit line if hitl_confirmed_at is null or absent)
+        Threads:   <review.copilot.threads_replied> replied, <review.copilot.threads_resolved> resolved  ← (omit line if both absent — backward compat)
         Last polled: <relative time>
 ```
 

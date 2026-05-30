@@ -1,0 +1,60 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "RT_unresolved_copilot",
+              "isResolved": false,
+              "isOutdated": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1001,
+                    "author": { "login": "copilot-pull-request-reviewer[bot]" },
+                    "path": "src/app.ts",
+                    "line": 42,
+                    "body": "Consider null-checking this value."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "RT_resolved_copilot",
+              "isResolved": true,
+              "isOutdated": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1002,
+                    "author": { "login": "Copilot" },
+                    "path": "src/app.ts",
+                    "line": 10,
+                    "body": "Already addressed."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "RT_unresolved_human",
+              "isResolved": false,
+              "isOutdated": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1003,
+                    "author": { "login": "octocat" },
+                    "path": "src/util.ts",
+                    "line": 7,
+                    "body": "Human review comment, not Copilot."
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
