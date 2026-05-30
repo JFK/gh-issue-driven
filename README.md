@@ -289,7 +289,9 @@ On **Yes**, the plugin enters the polling loop (up to **5 iterations**, configur
 3. **Exit conditions**: `approved`, `no_actionable_feedback`, `max_loops`, `tests_failed`, or `silent_no_op` (now means "confirmed but did not respond" — a genuine anomaly, not a catch-all).
 4. Apply actionable comments via `Edit`/`Bash`. Skip nits.
 5. Run local tests if `copilot.run_tests_after_edits` is true.
-6. Commit `fix: address Copilot review (loop N)`, push, re-request review.
+6. Commit `fix: address Copilot review (loop N)`, push.
+7. **Reply to each Copilot review thread** (`copilot.reply_to_threads`, default on): actionable threads get a `✅ Fixed in <sha>: …` reply and are **resolved** (`copilot.resolve_threads`, default on, via the GraphQL `resolveReviewThread` mutation); non-actionable threads get a rationale reply and are left open. Replies/resolves are best-effort (warn, never abort) and skipped under dry-run.
+8. Re-request review.
 
 On **No**, the plugin writes `exit_reason="hitl_declined"` to the state file, keeps the PR as draft, and skips the loop cleanly. When you're ready (e.g., after triggering Copilot via the Web UI or promoting from draft), re-enter the loop with `/gh-issue-driven:review` — the gate re-prompts because the decline was "skip this run", not "never ask again".
 
@@ -368,6 +370,8 @@ Key options:
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |
 | `copilot.max_wait_sec` | `900` | Max wait per loop iteration (15 min). |
 | `copilot.run_tests_after_edits` | `true` | Run local tests after applying Copilot suggestions. |
+| `copilot.reply_to_threads` | `true` | Post an in-thread reply to each Copilot review thread (`✅ Fixed in <sha>` for actionable, rationale for non-actionable). |
+| `copilot.resolve_threads` | `true` | Resolve actionable threads after replying (GraphQL `resolveReviewThread`). Non-actionable threads are left open. |
 
 ### Optimizing the Copilot review loop
 

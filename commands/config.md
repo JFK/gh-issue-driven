@@ -77,6 +77,25 @@ When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before en
 
 **Set to `false`** to restore the pre-v0.3.0 behavior exactly (no prompt, no `hitl_*` fields in state). Useful for CI or non-interactive environments where the operator cannot respond to AskUserQuestion.
 
+### `copilot.reply_to_threads` / `copilot.resolve_threads`
+
+Control what the Copilot review loop (`ship.md` step 14.f, `review.md` step 5b) does with individual inline review threads after it has applied fixes and pushed.
+
+When **`reply_to_threads`** is `true` (default), the loop posts an in-thread reply to each Copilot review thread it processed:
+
+- **actionable** threads (a code change was actually made) get a reply citing the fix commit: `✅ Fixed in <short-sha>: <summary>`.
+- **non-actionable** threads (style nits, questions, disagreements) get a reply stating the rationale for not changing code.
+
+When **`resolve_threads`** is `true` (default), the loop additionally **resolves actionable threads only** (via the GitHub GraphQL `resolveReviewThread` mutation — there is no REST endpoint for this). Non-actionable threads are deliberately **left open** so the reviewer can follow up.
+
+**Implementation notes**: thread IDs come from a GraphQL `pullRequest.reviewThreads` query (the polling JSON in step 14.a does not include inline threads). All reply/resolve calls are **best-effort** — a failure (e.g. insufficient permissions on a fork PR) logs a warning but never aborts the loop, since the fix itself is already pushed. Both behaviors are skipped entirely under `DRY_RUN`. Counts are recorded in state as `review.copilot.threads_replied` / `threads_resolved` and surfaced by `/gh-issue-driven:status`.
+
+**Set `reply_to_threads` to `false`** to restore the legacy behavior (no per-thread replies; the loop just re-requests review). **Set `resolve_threads` to `false`** to reply without resolving (leave all threads for the reviewer to close).
+
+### `copilot.reply_to_non_actionable` (deprecated)
+
+When `true`, the loop posts a single PR-level summary comment listing skipped (non-actionable) suggestions. **Superseded by `reply_to_threads`**, which replies to each thread individually. Defaults to `false` and is retained only for backward compatibility; new configs should rely on `reply_to_threads` instead.
+
 ### `doctor.expected_origins`
 
 Object mapping plugin skill names to their expected canonical HTTPS repository URLs. When set, `doctor` reads each installed plugin's `plugin.json` from the cache and compares its `repository` field against the configured value. A mismatch emits a `⚠️  <skill>: origin mismatch: ...` line — a supply-chain hygiene check that catches a plugin being silently replaced by a fork or a same-name impersonator.
@@ -246,6 +265,8 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "max_wait_sec": 900,
     "silent_no_op_threshold_polls": 3,
     "run_tests_after_edits": true,
+    "reply_to_threads": true,
+    "resolve_threads": true,
     "reply_to_non_actionable": false,
     "skip_setup_prompt": false,
     "hitl_confirm_invocation": true

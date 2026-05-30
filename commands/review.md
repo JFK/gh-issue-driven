@@ -150,7 +150,7 @@ This step is the same Copilot polling loop as ship.md step 14, with the followin
 - **Per-invocation loop counter**: Start `i` at `1` and run up to `copilot.max_loops` iterations **for this invocation**. `i` is always per-invocation (1-based).
 - **Global continuity**: Maintain `total_loops_run` as a separate accumulated count across all invocations. After each iteration, increment `total_loops_run`. For commit messages or logs that need a globally unique index, use `total_loops_run` (not `i`).
 
-Read Copilot-specific config from the `copilot.*` block (same keys as before: `max_loops`, `poll_interval_sec`, `max_wait_sec`, `silent_no_op_threshold_polls`, `run_tests_after_edits`, `reply_to_non_actionable`).
+Read Copilot-specific config from the `copilot.*` block (same keys as before: `max_loops`, `poll_interval_sec`, `max_wait_sec`, `silent_no_op_threshold_polls`, `run_tests_after_edits`, `reply_to_threads`, `resolve_threads`, `reply_to_non_actionable`).
 
 #### 5a. Request review (fire-and-forget)
 
@@ -206,7 +206,7 @@ Update detection state per ship.md step 14.a rules.
 
 A sixth terminal state `exit_reason="hitl_declined"` is set by the HITL gate between steps 5a and 5b (see the delegation block above) when the operator declined the Copilot invocation — the polling loop never enters in that case. The loop's exit condition list here does not include it because step 5b is skipped entirely on decline.
 
-**Address actionable comments**: Same as ship.md step 14.d — sanitize comment bodies, apply changes, run tests if configured.
+**Address actionable comments**: Same as ship.md step 14.d — fetch unresolved Copilot review threads via the GraphQL `reviewThreads` query (the source of `threadId`/`commentId`), sanitize comment/thread bodies, apply changes, record each thread's `disposition` + `threadId`/`commentId`, run tests if configured.
 
 **Commit and push**:
 
@@ -217,9 +217,17 @@ git commit -m "fix: address Copilot review (loop $i)
 - <bullet 1>
 - <bullet 2>"
 git push origin "$BRANCH"
+FIX_SHA=$(git rev-parse --short HEAD)
 ```
 
 Skip push if `DRY_RUN`.
+
+**Reply to threads and resolve**: Same as ship.md step 14.f — read `copilot.reply_to_threads` (default `true`) and `copilot.resolve_threads` (default `true`). For each tracked thread:
+
+- **actionable** → in-thread reply `✅ Fixed in $FIX_SHA: <summary>` (when `reply_to_threads`), then resolve via the GraphQL `resolveReviewThread` mutation (when `resolve_threads`).
+- **non_actionable** → reply with rationale only (when `reply_to_threads`); never resolve.
+
+All reply/resolve calls are best-effort (warn on failure, never abort) and skipped entirely under `DRY_RUN`. Track `THREADS_REPLIED`/`THREADS_RESOLVED` for the step 6 state write.
 
 **Re-request review**:
 
@@ -255,7 +263,9 @@ Update `~/.claude/cache/gh-issue-driven/<branch-flat>.json`:
     "detection_method": "<requested_reviewers|latest_reviews|neither>",
     "exit_reason": "<approved|no_actionable_feedback|max_loops|tests_failed|silent_no_op|hitl_declined>",
     "hitl_decision": "<confirmed|declined|null>",
-    "hitl_confirmed_at": "<UTC ISO-8601 | null>"
+    "hitl_confirmed_at": "<UTC ISO-8601 | null>",
+    "threads_replied": <count of threads replied to this invocation>,
+    "threads_resolved": <count of actionable threads resolved this invocation>
   },
   "code_review": {
     "ran_at": "<UTC ISO-8601>",
