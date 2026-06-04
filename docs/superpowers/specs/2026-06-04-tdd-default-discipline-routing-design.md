@@ -41,13 +41,13 @@ Large / plan-driven               → writing-plans ├─→ implement test-fir
                                     → subagent     ┘    superpowers:test-driven-development
 ```
 
-The TDD opt-out condition is the **same** wording `/goal` 5b already uses: skip the cycle only when there is genuinely nothing to assert (pure docs / formatting / mechanical rename / config). Never manufacture a token test to satisfy the ritual.
+The TDD opt-out condition is one **canonical string** used verbatim in `/start` 17b/17c/18e and `/goal` 5b: skip the cycle only when there is genuinely nothing to assert — **"pure docs / formatting / rename / config"**. Never manufacture a token test to satisfy the ritual.
 
 ### Change 1 — `/start` step 17b/17c (Suggested workflow display)
 
 - **17b (detection):** keep detecting the orchestration skills and `/code-review` as today. Detect `superpowers:test-driven-development` separately — it is the discipline, not a tier.
-- **17c (printed workflow):** present the orchestration tiers as *the choice* (Trivial→direct / Moderate→feature-dev / Large→writing-plans→subagent), each shown only when its skill is detected (the "direct edits" tier is always shown). Then state TDD **once**, as the default discipline that applies to whichever tier touches real logic — not as a tier bullet. Show the TDD line only when `superpowers:test-driven-development` is detected. Mirror `/goal` 5b's "test surface → test-first; docs/rename/config → opt-out" language so the two commands read identically.
-- The detection-gated "omit silently when not installed" rule (existing 17b behavior) still applies to every skill named, TDD included.
+- **17c (printed workflow):** present the orchestration tiers as *the choice* (Trivial→direct / Moderate→feature-dev / Large→writing-plans→subagent), each shown only when its skill is detected (the "direct edits" tier is always shown). Then state TDD **once**, as the default discipline that applies to whichever tier touches real logic — not as a tier bullet. The test-first **discipline sub-line is always shown** because the default applies with or without the skill; only the skill *name* (`superpowers:test-driven-development`) is detection-gated — when undetected, the line drops the name and reads "drive it test-first manually". Use the canonical opt-out string so `/start` 17c and `/goal` 5b read identically.
+- The "omit silently when not installed" rule (existing 17b behavior) still applies to every **orchestration/review** skill named. The test-first discipline is the **one carve-out**: its sub-line is always shown (it is a discipline, not a launchable tier), and only the skill name is gated. (This refines the original AC's "TDD line is detection-gated": per gate1's DX-Lead suggestion, the test-first *default* must hold even when the skill is absent — otherwise a machine without superpowers silently loses the discipline. Only the skill *name* is gated, not the discipline line.)
 
 ### Change 2 — `/start` step 18 (continue-target action)
 
@@ -79,7 +79,7 @@ This repo's "tests" are documentation-consistency checks (markdown command files
 - `/gh-issue-driven:doctor` still passes (no schema/flag changes introduced).
 - Manual dogf-read: confirm 17c's printed tiers and 18b's actual continue-target resolution agree (no tier advertised that 18 cannot launch).
 - Confirm `/start` 17c and `/goal` 5b state the same TDD opt-out condition (string-level consistency).
-- Confirm the TDD line in 17c is detection-gated (absent when `superpowers:test-driven-development` is not installed).
+- Confirm the test-first sub-line in 17c is **always shown**, with only the skill *name* detection-gated (the line reads "drive it test-first manually" when `superpowers:test-driven-development` is not installed).
 - No config schema change → no `config.md` default additions required.
 
 ## Risks
