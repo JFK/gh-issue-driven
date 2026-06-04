@@ -112,6 +112,11 @@ Runs **after** the issue is fetched and recall is done, **before** the branch is
 3. Parse the verdict from a `## Verdict: green|yellow|red` line at the end of the reviewer's response. The structured line is canonical and last-wins; case is normalized; trailing punctuation is tolerated. A keyword heuristic is the **fallback only** when no structured line is present, and emits a warn-level log so soft-deprecation can be tracked.
 4. **green** → HITL confirmation gate (asks the user to confirm before creating the branch; configurable via `gate1.green_continue_requires_confirm`, default `true`). **yellow** → ask the user to confirm. **red** → abort unless `force`.
 
+After the branch is created, `/start` prints a **suggested workflow** and offers a one-tap continue. Implementation has **two orthogonal layers**:
+
+- **Orchestration** — chosen by the change's size/risk: direct edits (trivial / docs / rename / config) · `/feature-dev:feature-dev` (moderate) · `superpowers:writing-plans → subagent-driven-development` (large / plan-driven). Pick at most one — **avoid overkill**.
+- **Test-first discipline** — `superpowers:test-driven-development` is the **default** wherever the change has a test surface (any real logic), applied *inside* the chosen orchestration (red→green→refactor), **not** as a separate route. Opt out only for pure docs / formatting / rename / config. The default holds even when the skill isn't installed (drive it test-first manually). This mirrors `/goal` step 5b — TDD is the default implementation discipline in **both** commands. The one-tap *continue* only auto-launches an orchestration (`/feature-dev`, or a plan draft); the test-first discipline is applied within whatever it runs.
+
 ### Phase 2 — `/gh-issue-driven:ship` (Gate 2: pre-PR review battery + Copilot loop)
 
 Runs **after** the implementation, **before** the PR is created. By default, **3 advisor reviewers** fire in parallel in a single Claude turn (advisor-only mode):

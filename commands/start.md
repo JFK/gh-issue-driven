@@ -969,35 +969,43 @@ If `GATE1_VERDICT` is `unknown` (reviewer skills not installed), omit this sub-s
 
 Check the current conversation's system-reminder skill list for the presence of these skills.
 
-**Implementation skills** — pick the one that fits the change's size/risk; **avoid overkill** (a trivial change needs none of these — edit directly):
+Implementation has **two orthogonal layers**: pick **one orchestration** skill by the change's size/risk (**avoid overkill** — a trivial change needs none, edit directly), and apply the **test-first discipline** *inside* whichever orchestration you pick, wherever the change has a test surface.
+
+**Orchestration skills** (choose at most one, by scope):
 
 - `/feature-dev:feature-dev` — guided feature development for **moderate** features (7-phase: discovery → exploration → questions → architecture → implementation → quality review → summary)
 - `/superpowers:subagent-driven-development` — execute an implementation plan's independent tasks for **large / plan-driven** work
 - `/superpowers:executing-plans` — execute a written plan with review checkpoints (alternative to the above for large work)
-- `/superpowers:test-driven-development` — test-first cycle, layered in wherever a test-first approach fits
 
-`/feature-dev:feature-dev` is **not** the only implementation skill — choose by scope.
+`/feature-dev:feature-dev` is **not** the only orchestration — choose by scope.
+
+**Implementation discipline** (default-on — a discipline, *not* a fourth orchestration tier):
+
+- `/superpowers:test-driven-development` — test-first red→green→refactor. This is the **default discipline** wherever the change has a test surface (any real logic), mirroring `/goal` step 5b's "TDD as an invariant, not a forced march". Opt out only for pure docs / formatting / rename / config. The test-first **default applies even when this skill is not installed** (drive it test-first manually) — the skill is just the formalized helper, so **only the skill's name is detection-gated**, never the default itself.
 
 **Review skill** (run before shipping):
 
 - `/code-review` — the Claude Code skill for reviewing the **working-tree diff** before `/ship` (no PR required yet; effort levels low/medium/high/max, `--fix`).
 
-For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills.
+For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills. **Exception — the test-first discipline:** the test-first sub-line in 17c is *always* shown because the default applies with or without the skill (it is a discipline, not a launchable tier); when `/superpowers:test-driven-development` is not detected, show the discipline but drop the skill name (phrase it as "drive it test-first manually") rather than omitting the line. This is the one carve-out from the "omit unavailable skills" rule.
 
 #### 17c. Print the suggested workflow
 
 ```
 Suggested workflow:
-  1. Implement the change on this branch — pick the approach that fits its size/risk (avoid overkill):
-       • Trivial (docs / one-liner / rename) → direct edits, no orchestration skill
+  1. Implement the change on this branch — pick the orchestration that fits its size/risk (avoid overkill):
+       • Trivial (docs / one-liner / rename / config) → direct edits, no orchestration skill
        • Moderate feature → /feature-dev:feature-dev                                   ← only if detected
        • Large / plan-driven / independent sub-tasks → /superpowers:subagent-driven-development (or /superpowers:executing-plans)   ← only if detected
-       • (cross-cutting) test-first where it fits → /superpowers:test-driven-development  ← only if detected
+     Discipline (runs inside whichever orchestration above — not a separate option):
+       • Test-first by default → write the failing test first, then the code, unless pure docs / formatting / rename / config   ← drive via /superpowers:test-driven-development when detected
   2. Run /code-review to review the working diff before shipping.   ← only if detected
   3. /gh-issue-driven:ship   ← when implementation is ready
 ```
 
-Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection. Under step 1, list only the size tiers whose skill was detected — the "direct edits" tier is always shown (it needs no skill).
+Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection. Under step 1, list only the **orchestration** tiers whose skill was detected — the "direct edits" tier is always shown (it needs no skill). The **test-first discipline sub-line is always shown** (the default applies with or without the skill); name `/superpowers:test-driven-development` only when detected, otherwise phrase it as "drive it test-first manually". The discipline applies *across* the tiers — it is **not** a fourth orchestration option.
+
+This is the **17c↔18 contract**: 17c is the *manual* menu (you can run any detected skill yourself). Step 18's one-tap *continue* only ever auto-launches an **orchestration** — `/feature-dev:feature-dev` (moderate) or a plan draft; the Large→subagent path auto-launches only under `--parallel` (otherwise step 18 drafts a plan you run). Step 18 never launches TDD as a standalone route — the test-first discipline is applied *within* whatever the continue action runs (see 18b/18e). So the menu never advertises an auto-launch that step 18 cannot perform.
 
 #### 17d. Respect `lang` setting
 
@@ -1070,6 +1078,8 @@ Invoke the AskUserQuestion tool with this question and these three **fixed** opt
 
 - **Stop here** → print a one-line acknowledgement (`OK — returning to prompt. Run /gh-issue-driven:ship when implementation is ready.`) and stop. Equivalent to the legacy behavior.
 - **Continue (option 2)** → print a one-line acknowledgement naming the action, then immediately perform `CONTINUE_TARGET_ACTION`. For the `--parallel` case, this means invoking the `/superpowers:subagent-driven-development` skill via the Skill tool with the plan content (from step 14.5's `plan.path`) as its working input. For the `/feature-dev` case this means invoking the `/feature-dev:feature-dev` skill via the Skill tool. For the "draft a plan" case, begin a normal conversational turn that summarizes the issue, lists the gate1 key suggestions extracted in step 17a, and proposes a concrete implementation outline grounded in files you have read or will read.
+
+  **Apply the test-first discipline within whichever orchestration runs.** Regardless of the continue target, when the change has a test surface (any real logic — not pure docs / formatting / rename / config), drive the implementation **test-first**: adopt the `/superpowers:test-driven-development` discipline **in-line** — write the failing test, watch it fail, write the minimal code to pass, refactor while green. This is the same in-line execution model as every other Skill invocation in this command (the parent adopts the role in this same conversation — it is **not** a spawned process), and it composes *inside* the orchestration rather than replacing it (e.g. `/feature-dev`'s implementation phase runs test-first; a plan draft is implemented test-first). The default holds even when `/superpowers:test-driven-development` is not installed — drive it test-first manually. Skip the discipline only for the pure docs / formatting / rename / config opt-out.
 - **Feedback / different direction (option 3)** → print a one-line acknowledgement that invites the operator to type their note, e.g. `Got it — what would you like to change or discuss?`. Then **stop and wait** for the operator's next message. When that next message arrives, treat it as the feedback and respond to it conversationally. Do **not** invoke any skill. Do not assume the feedback overrides gate1 — if it implies a design change large enough to invalidate gate1, say so explicitly and suggest re-running `/gh-issue-driven:start` once the new direction is settled.
 
 After step 18 completes (regardless of which branch), `/start` is done. The state file written in step 14 is the source of truth for `/ship` and `/status`; step 18's choice is **not** persisted (it only affects the in-conversation flow).

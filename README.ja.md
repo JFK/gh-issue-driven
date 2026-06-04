@@ -111,6 +111,11 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 3. レビュアの応答末尾の `## Verdict: green|yellow|red` 行から verdict を解析する。構造化行が canonical で last-wins、case は正規化、末尾の句読点は許容。キーワードヒューリスティックは構造化行が無い場合の **fallback のみ** で、warn ログを emit して soft-deprecation の追跡が可能。
 4. **green** → HITL 確認ゲート（ブランチ作成前にユーザー確認。`gate1.green_continue_requires_confirm` で設定可、デフォルト `true`） / **yellow** → ユーザー確認 / **red** → abort（`force` で override 可）
 
+ブランチ作成後、`/start` は **suggested workflow** を表示し、ワンタップの continue を提示します。実装は **直交する2層** で構成されます：
+
+- **オーケストレーション** — 変更の規模/リスクで選ぶ: 直接編集（trivial / docs / rename / config）・`/feature-dev:feature-dev`（moderate）・`superpowers:writing-plans → subagent-driven-development`（large / plan-driven）。**overkill を避け**、選ぶのは最大1つ。
+- **テストファースト規律** — `superpowers:test-driven-development` は、テスト面がある変更（実ロジックを含むもの）では **デフォルト** で適用される規律。選んだオーケストレーションの **内側** で red→green→refactor を回すものであり、独立したルートでは **ない**。opt-out は純粋な docs / formatting / rename / config のみ。スキル未インストールでもデフォルトは維持（手動で test-first）。これは `/goal` step 5b と対称 — TDD は **両コマンド** でデフォルトの実装規律。ワンタップの *continue* が自動起動するのはオーケストレーション（`/feature-dev` か plan 起案）のみで、テストファースト規律はその内側で適用されます。
+
 ### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + Copilot ループ)
 
 実装の **後**、PR 作成の **前** に走ります。デフォルトでは **3つの advisor reviewer** が 1ターン内で並列発火 (advisor-only mode)：
