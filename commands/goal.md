@@ -1,8 +1,8 @@
 ---
-description: Phase G of gh-issue-driven — drive a whole milestone to PR. For each open issue it runs start → implement → /code-review → ship (gate2 + PR + Copilot review loop + session-summary), checkpointing to resumable state between issues. Gates on red verdicts (HITL); green/yellow auto-continue. (Full green/yellow unattended — suppressing the delegated start/ship prompts — is wired in #74.)
+description: Phase G of gh-issue-driven — drive a whole milestone to PR. For each open issue it runs start → implement (TDD + a cheap Haiku inner-review pass over the diff) → ship (gate2 + PR + Copilot review loop + session-summary), checkpointing to resumable state between issues. Gates on red verdicts (HITL); green/yellow auto-continue. (Full green/yellow unattended — suppressing the delegated start/ship prompts — is wired in #74.)
 arguments:
   - name: target
-    description: "The milestone to finish, e.g. 'finish milestone 0.5.0', a bare milestone title ('v0.5.0'), or a milestone number. Optional trailing flags: 'dry-run' (plan the order and print what would run, touch nothing), 'force' (treat red verdicts as yellow — fully unattended, no HITL at all), 'resume' (continue the most recent unfinished run for this milestone)."
+    description: "The milestone to finish, e.g. 'finish milestone 0.5.0', a bare milestone title ('v0.5.0'), or a milestone number. Optional trailing flags: 'dry-run' (plan the order and print what would run, touch nothing), 'force' (treat red verdicts as yellow — fully unattended, no HITL at all), 'resume' (continue the most recent unfinished run for this milestone), 'no-copilot' (skip the expensive Copilot PR-review loop for this run — forwarded to /ship as the per-run reviewer override), 'review-model=<tier>' (model for the cheap inner-review pass — a model alias like haiku|sonnet|opus or a full id; overrides goal.inner_review.model for this run)."
     required: true
 ---
 
@@ -49,7 +49,7 @@ The autonomy level only governs **verdict** gating. The milestone-missing precon
 
 ### 1. Parse arguments, load config, resolve the milestone (hard precondition)
 
-Parse `$ARGUMENTS`: extract the **milestone target** (everything that isn't a known flag; tolerate a leading `finish milestone` phrasing — strip those words) and the flags `dry-run`, `force`, `resume`. Set `DRY_RUN`, `FORCE`, `RESUME` booleans. Reject unknown flag-shaped tokens.
+Parse `$ARGUMENTS`: extract the **milestone target** (everything that isn't a known flag; tolerate a leading `finish milestone` phrasing — strip those words) and the flags `dry-run`, `force`, `resume`, `no-copilot`, and `review-model=<tier>`. Set `DRY_RUN`, `FORCE`, `RESUME`, `NO_COPILOT` booleans and `REVIEW_MODEL_OVERRIDE` (the value after `review-model=`, or null). Reject unknown flag-shaped tokens. (`review-model` only re-tiers the **cheap inner-review subagent** of step 5b; it never changes the implementation model or the gate2 cascade.)
 
 Load `~/.claude/gh-issue-driven-config.json` over the documented defaults. Extract:
 - `AUTONOMY` from `goal.autonomy` (default `"red-only"`); `force` overrides to `"unattended"` for this run. **Validate** against the enum `{red-only, unattended, attended}` — an unrecognized value (e.g. a typo like `redonly`) is rejected with `error: invalid goal.autonomy "<v>" (expected: red-only | unattended | attended)`. Never run with an undefined gating policy.
@@ -57,6 +57,8 @@ Load `~/.claude/gh-issue-driven-config.json` over the documented defaults. Extra
 - The Copilot loop cap is **`/ship`'s `copilot.max_loops`** (the loop is delegated, step 5c) — `/goal` does not define its own cap.
 - `LANG` from `lang` (default `"en"`).
 - The Copilot loop tuning (`copilot.poll_interval_sec`, `copilot.max_wait_sec`, `copilot.silent_no_op_threshold_polls`) is reused as-is from the effective config.
+- **Inner review (step 5b)** from `goal.inner_review.*`: `INNER_REVIEW_ENABLED` (`enabled`, default `true`), `INNER_REVIEW_MODEL` (`model`, default `"haiku"` — `REVIEW_MODEL_OVERRIDE` wins when the `review-model=` flag is present), `INNER_REVIEW_MAX_ROUNDS` (`max_rounds`, default `2`). These govern only the cheap pre-PR review pass, never implementation or gate2.
+- **Copilot review is optional and inherited.** `/goal` does not run the Copilot loop itself — `/ship` does (step 5c), reading `review.provider` (default `"copilot"`; `none`/`code-review`/`both` are the cheaper alternatives) from the same effective config. So the persistent way to make Copilot optional is `review.provider` in the config file. For a **per-run** opt-out, the `no-copilot` flag sets `NO_COPILOT=true`, which `/goal` forwards to `/ship` (step 5c) — `/ship` then overrides its own `REVIEW_PROVIDER` to `"none"` for that issue's PR (the PR is still opened and left for manual review; the issue is recorded `needs_human` per the 5c null-exit rule). `/goal` defines no new Copilot config key — it reuses `/ship`'s contract verbatim.
 
 Pre-flight (single Bash block, abort with guidance on failure): `git rev-parse --is-inside-work-tree`, `gh auth status`, and a clean working tree (`git status --porcelain` empty). Resolve `REPO_FULL_NAME` via `gh repo view --json nameWithOwner`.
 
@@ -124,7 +126,8 @@ Print a compact plan block (localized when `lang != "en"`):
 Goal: finish milestone <title> (#<number>) — <N> open issue(s)
 Autonomy: <level>  (red verdict → HITL; yellow → auto-accepted; green → continue)
 Order: #<a> → #<b> → #<c> ...
-Review: delegated to /ship (gate2 + PR + Copilot loop, bounded by copilot.max_loops)
+Inner review: <model> tier, up to <max_rounds> round(s)  (disabled → /code-review fallback)
+PR review: <review.provider, or "none (no-copilot)" when the flag is set> — delegated to /ship (gate2 + PR + Copilot loop, bounded by copilot.max_loops)
 ```
 
 ### 5. Per-issue loop
@@ -137,19 +140,26 @@ For each issue in `WORKLIST` not already `done`, re-read the state file, set its
 
 Apply the verdict policy (Autonomy model table). On `green`/`yellow` → continue (record `yellow_auto_accepted += "gate1"` for yellow). On `red` → go to step 5d with `phase="gate1"` (read the persisted `gate1.verdict=red` from state — under `red-only` `/start` returned control rather than aborting).
 
-#### 5b. Implement (size-aware skill choice — avoid overkill)
+#### 5b. Implement (size-aware — avoid overkill)
 
 Choose the implementation approach by the change's size/risk, exactly as `/start` step 17b/17c describes — **avoid overkill**:
 - Trivial (docs / one-liner / rename) → direct edits, no orchestration skill.
 - Moderate feature → `/feature-dev:feature-dev` (if installed).
 - Large / plan-driven / independent sub-tasks → `/superpowers:subagent-driven-development` (or `/superpowers:executing-plans`), if installed.
-- Layer `/superpowers:test-driven-development` where a test-first cycle fits.
 
-Run the change to green on the issue's acceptance criteria. Then run **`/code-review`** at an effort level matched to the change (`low` for docs/small, `medium` for features, `high`/`max` for risky or wide changes); apply its findings.
+**TDD as an invariant, not a forced march.** Where the change has a test surface (any real logic — not pure docs/config/rename), drive it test-first via `/superpowers:test-driven-development`: write a failing test that pins an acceptance criterion → write the minimum code to pass → refactor while green. Keep the cycle **tight** — small red→green→refactor steps, not one big test bolted on at the end. Skip the cycle only when there is genuinely nothing to assert (pure docs / formatting / mechanical rename); do **not** manufacture a token test to satisfy the ritual, and do **not** mechanically "refactor" a diff that does not need it. The Definition of Done is green tests + green checks on the issue's acceptance criteria — not "every numbered step was performed".
+
+Run the change to green on the issue's acceptance criteria, then run the repo's relevant checks (tests, plus lint/typecheck/build scaled to what the change touches).
+
+**Inner review — cheap tier first, then fix-and-recheck.** Before handing off to `/ship`'s heavy gate2 cascade (5c), run one fast pass over the **working-tree diff** (`git diff` — no PR exists yet at this stage, so this reviews the diff directly):
+- When `INNER_REVIEW_ENABLED` (default `true`): **dispatch a reviewer subagent on the `INNER_REVIEW_MODEL` tier** (default `"haiku"`; the `review-model=<tier>` flag overrides for this run) to review the diff against the issue's acceptance criteria and the repo's conventions, returning concrete, actionable findings only (no praise, no restating the diff). Fix the valid findings, re-run the relevant checks, and repeat this cheap pass until it returns no new findings — capped at `INNER_REVIEW_MAX_ROUNDS` (default `2`). Leftover findings beyond the cap are not lost: gate2 (5c) is the authoritative gate. Log `goal: inner-review (<model>) — <n> finding(s) applied, <rounds> round(s)` so the recap shows it ran.
+- When `INNER_REVIEW_ENABLED` is `false`, or the requested model tier is unavailable: fall back to **`/code-review`** at an effort level matched to the change (`low` for docs/small, `medium` for features, `high`/`max` for risky or wide changes); apply its findings.
+
+This keeps **implementation on the normal session model and only the *inner* review cheap** — the authoritative, expensive review remains the gate2 cascade `/ship` runs in 5c, so the Haiku pass is a fast filter for obvious issues, never a replacement for the real gate.
 
 #### 5c. Ship — gate2 + PR + Copilot review (delegated to `/ship`)
 
-> **Invoke `/gh-issue-driven:ship --autonomous=<AUTONOMY>` via the Skill tool** (additionally pass `force` when `AUTONOMY` is `unattended` — i.e. `/gh-issue-driven:ship --autonomous=unattended force` — so a red gate2 proceeds instead of stopping; note `force` still does not override a `gate2.binary_gate` `fail`). `--autonomous` suppresses `/ship`'s gate2 green/yellow HITL and auto-confirms the Copilot-invocation gate (so the loop runs unattended); under `red-only` (no `force`) a red gate2 is **persisted to state and control returns** (no PR created) rather than aborting. `/ship` already owns this entire phase — it runs gate2, creates the PR, drives the post-PR review loop (with `review.provider=copilot`, steps 13–14), and saves `/kagura-memory:session-summary` (step 15). `/goal` does **not** re-implement any of it; it delegates and consumes `/ship`'s state. (This avoids a second, conflicting Copilot loop.)
+> **Invoke `/gh-issue-driven:ship --autonomous=<AUTONOMY>` via the Skill tool** (additionally pass `force` when `AUTONOMY` is `unattended` — i.e. `/gh-issue-driven:ship --autonomous=unattended force` — so a red gate2 proceeds instead of stopping; note `force` still does not override a `gate2.binary_gate` `fail`). **When `NO_COPILOT` is set, also append `no-copilot`** so `/ship` overrides its `REVIEW_PROVIDER` to `"none"` for this issue — gate2 still runs and the PR is still created, but the expensive Copilot loop is skipped (the issue lands `needs_human` via the 5c null-exit rule, since its PR is unreviewed). Omitting the flag keeps `/ship`'s configured `review.provider`. `--autonomous` suppresses `/ship`'s gate2 green/yellow HITL and auto-confirms the Copilot-invocation gate (so the loop runs unattended); under `red-only` (no `force`) a red gate2 is **persisted to state and control returns** (no PR created) rather than aborting. `/ship` already owns this entire phase — it runs gate2, creates the PR, drives the post-PR review loop (with `review.provider=copilot`, steps 13–14), and saves `/kagura-memory:session-summary` (step 15). `/goal` does **not** re-implement any of it; it delegates and consumes `/ship`'s state. (This avoids a second, conflicting Copilot loop.)
 
 Consume `/ship`'s outcome from its branch state file:
 - `GATE2_VERDICT` → apply the verdict policy (5a rules): `green`/`yellow` continue (record `yellow_auto_accepted += "gate2"` for yellow); `red` → step 5d with `phase="gate2"`. A configured `gate2.binary_gate` returning `fail` makes `/ship` hard-abort even with force — that is a **non-verdict** abort, so `/goal` stops the run per step 6.
@@ -209,7 +219,8 @@ State is the source of truth; the recap is a view of it.
 | step 5a / 5c | `/gh-issue-driven:start`, `/ship` (this plugin) | required — abort with guidance |
 | step 5a | `/claude-c-suite:ask` (gate1, via `/start`) | gate1 degrades to advisory per `/start` |
 | step 5b | `/feature-dev:feature-dev`, `/superpowers:*` | fall back to direct edits |
-| step 5b | `/code-review` (built-in) | warn and skip the pre-PR review step for that issue |
+| step 5b | inner-review subagent (`goal.inner_review.model`, default `haiku`) | falls back to `/code-review`; if the model tier is unavailable, downshift skipped (review runs on the session model) |
+| step 5b | `/code-review` (built-in) | fallback when `goal.inner_review.enabled` is `false`; if `/code-review` is also absent, warn and skip the pre-PR review for that issue (gate2 still gates in 5c) |
 | step 5c | `@copilot` (Mode A or `--add-reviewer`) | per `review.provider`; if no reviewer, the issue's PR is left open for manual review and marked `needs_human` |
 | step 5c (via `/ship`) | `/kagura-memory:session-summary` | `/ship` skips it with a warning |
 

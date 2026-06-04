@@ -159,8 +159,15 @@ Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
 |---|---|---|
 | `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. `/goal` forwards this value verbatim to the delegated `/start` and `/ship` as `--autonomous=<level>` (#74): under `red-only`/`unattended` they suppress their own green/yellow + Copilot-invocation prompts (and on `red` without `force` persist the verdict and return control rather than aborting); under `attended` suppression is disabled and the sub-commands' own prompts fire as normal. |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
+| `inner_review.enabled` | `true` | Whether step 5b runs a **cheap inner-review pass** over the working-tree diff before handing off to `/ship`'s heavy gate2 cascade. When `false`, 5b falls back to `/code-review` at a size-scaled effort level (the pre-#76 behavior). |
+| `inner_review.model` | `"haiku"` | Model tier for the inner-review subagent — a model alias (`"haiku"` / `"sonnet"` / `"opus"`) or a full model id. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade (unaffected by this key). Implementation runs on the normal session model regardless — only the review subagent is downshifted. |
+| `inner_review.max_rounds` | `2` | Cap on the cheap fix-and-recheck loop (the inner review is a fast filter, not the authoritative gate). Findings beyond the cap are left for gate2 to catch. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
+
+**Controlling review cost.** Because `/goal` fans the review machinery across *every* open issue in a milestone, the Copilot loop is the dominant cost. Two independent levers, neither adding a new `goal.*` key:
+- **PR review (the expensive async Copilot loop)** — optional via the inherited `review.provider`: set it to `"none"` (no automated PR review) or `"code-review"` (single-shot, no polling loop) for a persistent, cheaper default; or pass the per-run `no-copilot` flag to `/gh-issue-driven:goal`, which forwards to `/ship` as `no-copilot` for that run only. With Copilot off, each issue's PR is opened and left for manual review (recorded `needs_human`).
+- **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"haiku"`) keeps it on a low-cost tier; the `review-model=<tier>` flag re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
 
 ### `memory.context_id`
 
@@ -297,7 +304,12 @@ Users without kagura-memory installed can ignore this field — recall is skippe
   },
   "goal": {
     "autonomy": "red-only",
-    "max_issues_per_run": 20
+    "max_issues_per_run": 20,
+    "inner_review": {
+      "enabled": true,
+      "model": "haiku",
+      "max_rounds": 2
+    }
   },
   "doctor": {
     "expected_origins": {
