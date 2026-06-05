@@ -48,16 +48,20 @@ In advisor-only mode, the 3-advisor aggregate is the gate2 signal. All three ret
 
 ### `review.provider`
 
-Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalone `/gh-issue-driven:review` command. Accepts one of four values:
+Selects which post-PR reviewer to use in review.md step 5 and the standalone `/gh-issue-driven:review` command. Default is `"none"` — review is opt-in; nothing runs unless you set a provider. Accepts one of four values:
 
 | Value | Behavior |
 |---|---|
-| `"copilot"` (default) | GitHub Copilot — async poll-based iterative loop (existing behavior). Uses `copilot.*` config for tuning. |
+| `"none"` (default) | Skip post-PR review entirely. Equivalent to the legacy `no-copilot` flag, but config-level. |
+| `"copilot"` | GitHub Copilot — async poll-based iterative loop (existing behavior). Uses `copilot.*` config for tuning. |
 | `"code-review"` | `/code-review` (official Claude Code plugin) — in-turn single-shot invocation. Posts a PR comment with findings. No polling loop. |
 | `"both"` | Runs `/code-review` first (in-turn, single-shot), then Copilot loop (async, iterative). Sequential, not parallel — `/code-review` completes before Copilot starts. |
-| `"none"` | Skip post-PR review entirely. Equivalent to the legacy `no-copilot` flag, but config-level. |
 
-**Interaction with `copilot.enabled`**: When the user config explicitly sets `review.provider`, that value controls reviewer selection and `copilot.enabled` is ignored. When `review.provider` is absent from the user config, the legacy `copilot.enabled` field is consulted: if explicitly `false`, `REVIEW_PROVIDER` becomes `"none"`. Otherwise, the built-in default `"copilot"` is used. New users should use `review.provider` instead of `copilot.enabled`.
+**Deprecated: `copilot.enabled`** — no longer consulted. Previously, when `review.provider` was absent, `copilot.enabled=false` forced `none`. As of this version the default is `none` regardless, and `copilot.enabled` is ignored. Migrate by setting `review.provider` explicitly (`"copilot"` restores the old auto-review behavior).
+
+### `review.model`
+
+Default `"auto"`. One of `auto | haiku | sonnet | opus` (or a full model id). Tier for the **fix-application subagent** that `/gh-issue-driven:review` dispatches to apply review findings. `auto` right-sizes by the PR's diff scope/risk (docs-only → haiku, normal → sonnet, risky/wide → opus). Does not affect provider selection, the gate2 cascade, or `/code-review`.
 
 **Interaction with the `no-copilot` flag**: The `no-copilot` flag on `/gh-issue-driven:ship` overrides `review.provider` to `"none"` for that invocation only. It does not modify the config file.
 
@@ -67,7 +71,7 @@ Selects which post-PR reviewer to use in ship.md steps 13–14 and the standalon
 
 ### `copilot.hitl_confirm_invocation`
 
-When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before entering the Copilot polling loop and ask the operator via `AskUserQuestion` whether Copilot review should actually be invoked. The gate has three options: **Yes** (proceed to the loop, records `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>`), **No** (skip the loop cleanly, records `exit_reason="hitl_declined"` and `hitl_decision="declined"`), **Retry** (re-present the prompt immediately — the plugin does not poll between re-emits).
+When `true` (default), `review.md` step 5a pauses before entering the Copilot polling loop and asks the operator via `AskUserQuestion` whether Copilot review should actually be invoked. The gate has three options: **Yes** (proceed to the loop, records `hitl_decision="confirmed"` and `hitl_confirmed_at=<now>`), **No** (skip the loop cleanly, records `exit_reason="hitl_declined"` and `hitl_decision="declined"`), **Retry** (re-present the prompt immediately — the plugin does not poll between re-emits).
 
 **Why it exists**: the `gh pr edit --add-reviewer @copilot` call is fire-and-forget and cannot be programmatically verified. Real failure modes (org permissions, Copilot billing/policy, Mode A/B toggle, manual comment-mention triggers, draft-PR unreliability) are not API-queryable. Instead of growing a detection matrix, the plugin asks the operator — who can see the PR — to confirm.
 
@@ -79,7 +83,7 @@ When `true` (default), `ship.md` step 13c and `review.md` step 5 pause before en
 
 ### `copilot.reply_to_threads` / `copilot.resolve_threads`
 
-Control what the Copilot review loop (`ship.md` step 14.f, `review.md` step 5b) does with individual inline review threads after it has applied fixes and pushed.
+Control what the Copilot review loop (`review.md` step 5b) does with individual inline review threads after it has applied fixes and pushed.
 
 When **`reply_to_threads`** is `true` (default), the loop posts an in-thread reply to each Copilot review thread it processed:
 
@@ -160,14 +164,14 @@ Tuning for `/gh-issue-driven:goal`, the autonomous milestone-completion loop.
 | `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. `/goal` forwards this value verbatim to the delegated `/start` and `/ship` as `--autonomous=<level>` (#74): under `red-only`/`unattended` they suppress their own green/yellow + Copilot-invocation prompts (and on `red` without `force` persist the verdict and return control rather than aborting); under `attended` suppression is disabled and the sub-commands' own prompts fire as normal. |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
 | `inner_review.enabled` | `true` | Whether step 5b runs a **cheap inner-review pass** over the working-tree diff before handing off to `/ship`'s heavy gate2 cascade. When `false`, 5b falls back to `/code-review` at a size-scaled effort level (the pre-#76 behavior). |
-| `inner_review.model` | `"haiku"` | Model tier for the inner-review subagent — a model alias (`"haiku"` / `"sonnet"` / `"opus"`) or a full model id. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade (unaffected by this key). Implementation runs on the normal session model regardless — only the review subagent is downshifted. |
+| `inner_review.model` | `"auto"` | Model tier for the inner-review subagent. `auto` (default) right-sizes by working-tree diff scope (docs→haiku, normal→sonnet, risky→opus); a fixed alias (`haiku`/`sonnet`/`opus`/id) is used verbatim. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade. Implementation runs on the normal session model regardless. |
 | `inner_review.max_rounds` | `2` | Cap on the cheap fix-and-recheck loop (the inner review is a fast filter, not the authoritative gate). Findings beyond the cap are left for gate2 to catch. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/goal` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
 
 **Controlling review cost.** Because `/goal` fans the review machinery across *every* open issue in a milestone, the Copilot loop is the dominant cost. Two independent levers, neither adding a new `goal.*` key:
 - **PR review (the expensive async Copilot loop)** — optional via the inherited `review.provider`: set it to `"none"` (no automated PR review) or `"code-review"` (single-shot, no polling loop) for a persistent, cheaper default; or pass the per-run `no-copilot` flag to `/gh-issue-driven:goal`, which forwards to `/ship` as `no-copilot` for that run only. With Copilot off, each issue's PR is opened and left for manual review (recorded `needs_human`).
-- **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"haiku"`) keeps it on a low-cost tier; the `review-model=<tier>` flag re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
+- **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"auto"`) right-sizes by diff scope; the `review-model=<tier>` flag re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
 
 ### `memory.context_id`
 
@@ -262,7 +266,8 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     }
   },
   "review": {
-    "provider": "copilot"
+    "provider": "none",
+    "model": "auto"
   },
   "copilot": {
     "enabled": true,
@@ -307,7 +312,7 @@ Users without kagura-memory installed can ignore this field — recall is skippe
     "max_issues_per_run": 20,
     "inner_review": {
       "enabled": true,
-      "model": "haiku",
+      "model": "auto",
       "max_rounds": 2
     }
   },
