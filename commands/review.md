@@ -63,7 +63,7 @@ Parse `--autonomous[=<level>]` from `$ARGUMENTS` (default unset → `AUTONOMOUS_
 
 Parse an explicit PR number from `$ARGUMENTS` if present: a bare integer token (`^[1-9][0-9]{0,8}$`) or a `#<n>` token is treated as `PR_NUMBER`. When `/ship` delegates here it passes the PR number explicitly; standalone invocations omit it and fall back to reading `pr.number` from the state file (step 2a below).
 
-Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Read `review.provider` from the effective config (default `"copilot"`).
+Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Read `review.provider` from the effective config (default `"none"`).
 
 #### 2a. Read the state file
 
