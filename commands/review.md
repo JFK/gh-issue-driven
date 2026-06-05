@@ -147,7 +147,7 @@ Skip this step if `PROVIDER` is `code-review`.
 
 #### gh CLI version check (warn-only, runs unconditionally)
 
-This check runs as part of pre-flight, before configuration is loaded — so it cannot read `copilot.enabled` and intentionally always runs. It compares `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op. The warning is **harmless when copilot is disabled** (the loop won't run anyway), so emitting it unconditionally is the simpler design vs deferring to step 2.
+This check runs at the start of step 5, before the Copilot sub-steps. Even though config is already loaded (step 2), it runs unconditionally because the warning is harmless when no Copilot loop ends up running — keeping it unconditional is simpler than gating it. It compares `gh --version` against the 2.88.0 floor (the version that added real `--add-reviewer @copilot` support per the March 2026 changelog). On older versions the manual reviewer add will silently no-op. The warning is **harmless when copilot is disabled** (the loop won't run anyway), so emitting it unconditionally is the simpler design vs deferring to step 2.
 
 ```bash
 # Strip a leading "v" so a future "gh version v2.88.0" output still parses cleanly.
@@ -178,7 +178,7 @@ The Copilot polling loop below runs with the following per-invocation and cross-
 - **Per-invocation loop counter**: Start `i` at `1` and run up to `copilot.max_loops` iterations **for this invocation**. `i` is always per-invocation (1-based).
 - **Global continuity**: Maintain `total_loops_run` as a separate accumulated count across all invocations. After each iteration, increment `total_loops_run`. For commit messages or logs that need a globally unique index, use `total_loops_run` (not `i`).
 
-Read Copilot-specific config from the `copilot.*` block (same keys as before: `max_loops`, `poll_interval_sec`, `max_wait_sec`, `silent_no_op_threshold_polls`, `run_tests_after_edits`, `reply_to_threads`, `resolve_threads`, `reply_to_non_actionable`).
+Read Copilot-specific config from the `copilot.*` block (keys: `max_loops`, `poll_interval_sec`, `max_wait_sec`, `silent_no_op_threshold_polls`, `run_tests_after_edits`, `reply_to_threads`, `resolve_threads`, `reply_to_non_actionable`).
 
 #### 5a. Request review (fire-and-forget) + HITL confirmation gate
 
@@ -386,7 +386,7 @@ For each sanitized-and-wrapped comment:
 - For non-actionable: record the rationale; do not change code.
 - If the comment maps to an entry in `UNRESOLVED` (match on `path`/`line`/`body`), keep its `threadId` and `commentId` alongside the `disposition` and summary/rationale — the reply/resolve step uses them to reply and resolve.
 
-If `copilot.run_tests_after_edits` is true (default), run the same auto-detected test command from step 4. If tests fail, **stop the loop, save state, and report** rather than committing broken code.
+If `copilot.run_tests_after_edits` is true (default), run the auto-detected test command (the project's test runner: `package.json` → `npm test`, `Cargo.toml` → `cargo test`, `pyproject.toml`/`setup.py` → `pytest`, etc.). If tests fail, **stop the loop, save state, and report** rather than committing broken code.
 
 **Commit and push**:
 
