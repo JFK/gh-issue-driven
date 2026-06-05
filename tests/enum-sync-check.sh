@@ -8,10 +8,10 @@
 # Current enums under sync-check:
 #   - exit_reason: terminal state of the Copilot review loop, plus the
 #     HITL decline path. Enumerated in config.md:23 (Layer C definition),
-#     ship.md (schema template + exit conditions + stay-as-draft list),
 #     review.md (schema template + exit conditions + stay-as-draft list).
+#     ship.md forwards to review.md but no longer owns the loop state.
 #   - hitl_decision: operator decision from the HITL gate. Enumerated in
-#     config.md:23 and the ship.md / review.md schema templates.
+#     config.md:23 and the review.md schema template.
 #
 # Why status.md is NOT in FILES: status.md consumes these enums as display
 # data, but only explicitly enumerates a subset (`silent_no_op` for the
@@ -52,7 +52,7 @@ HITL_DECISION_VALUES=(
 
 # autonomy level: the --autonomous=<level> flag enum, mirrored from
 # goal.autonomy. Must stay identical across goal.md (the source of truth)
-# and the two delegated commands that parse the flag (start.md, ship.md).
+# and the delegated commands that parse the flag (start.md, ship.md, review.md).
 # Added with #74 (--autonomous HITL suppression).
 AUTONOMY_LEVEL_VALUES=(
   "red-only"
@@ -62,17 +62,18 @@ AUTONOMY_LEVEL_VALUES=(
 
 FILES=(
   "$REPO_ROOT/commands/config.md"
-  "$REPO_ROOT/commands/ship.md"
   "$REPO_ROOT/commands/review.md"
 )
 
 # The autonomy enum lives in a different set of files than exit_reason /
-# hitl_decision: it is defined in goal.md and consumed by start.md + ship.md.
-# review.md and config.md do not parse the flag, so they are not checked for it.
+# hitl_decision: it is defined in goal.md and consumed by start.md + ship.md
+# (which forwards --autonomous) + review.md (which now parses --autonomous and
+# writes hitl_decision). config.md does not parse the flag, so it is not checked.
 AUTONOMY_FILES=(
   "$REPO_ROOT/commands/goal.md"
   "$REPO_ROOT/commands/start.md"
   "$REPO_ROOT/commands/ship.md"
+  "$REPO_ROOT/commands/review.md"
 )
 
 PASS=0
@@ -114,9 +115,9 @@ if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "To fix: ensure every value in EXIT_REASON_VALUES / HITL_DECISION_VALUES"
   echo "at tests/enum-sync-check.sh appears in all files listed in FILES (config.md"
-  echo "Layer C list, ship.md schema template + prose, review.md schema template"
-  echo "+ exit conditions). For AUTONOMY_LEVEL_VALUES, ensure every level appears"
-  echo "in all AUTONOMY_FILES (goal.md, start.md, ship.md). Also manually review"
+  echo "Layer C list, review.md schema template + exit conditions + stay-as-draft"
+  echo "list). For AUTONOMY_LEVEL_VALUES, ensure every level appears in all"
+  echo "AUTONOMY_FILES (goal.md, start.md, ship.md, review.md). Also manually review"
   echo "commands/status.md for any display-level updates the mechanical check"
   echo "does not cover."
   exit 1

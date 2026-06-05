@@ -460,7 +460,7 @@ This sub-step is the only entry point for `GATE1_REVIEWER="size-heuristic"`. The
 
 #### 8a. Sanitize external text
 
-Before interpolating the issue body into the reviewer prompt, run it through this sanitizer. This is the **canonical sanitizer definition** — `ship.md` step 14.d references the same algorithm for PR comment bodies.
+Before interpolating the issue body into the reviewer prompt, run it through this sanitizer. This is the **canonical sanitizer definition** — `review.md` step 5b references the same algorithm for PR comment bodies.
 
 1. **Strip fenced code blocks**: replace each `` ``` … ``` `` fenced block (including the language tag line if present) with `[code block removed]`. Match from an opening `` ``` `` to the **nearest** subsequent closing `` ``` ``; if no closing fence exists, match to end-of-string. Apply independently for each fenced block so multiple blocks are replaced and counted separately.
 2. **Escape XML-like tags**: replace `<` with `&lt;` and `>` with `&gt;` throughout the text to neutralize `<system>`, `<instruction>`, or similar tags that an attacker might embed.

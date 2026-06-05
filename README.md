@@ -6,7 +6,7 @@
 
 **English** | [日本語](README.ja.md)
 
-> **Full-lifecycle GitHub-issue-driven dev workflow: `propose` issues from session context, design-gated `start`, advisor + Copilot-gated `ship` with HITL confirmation at every phase boundary, ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.**
+> **Full-lifecycle GitHub-issue-driven dev workflow: `propose` issues from session context, design-gated `start`, advisor-gated `ship` (with opt-in post-PR review) and HITL confirmation at every phase boundary, ceremony-automated `tag` — with multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.**
 
 `gh-issue-driven` is a [Claude Code](https://claude.com/claude-code) plugin — but think of it as an **orchestration harness**: a thin meta-layer that wires Claude Code's own skills and agents (design advisors, memory recall, `/code-review`, Copilot) into one governed, repeatable issue → release pipeline with a human-in-the-loop checkpoint at every phase boundary. It's **not** a code generator or a single command — it's the layer that *coordinates* those skills with governance gates and memory.
 
@@ -17,7 +17,7 @@ graph LR
     P["/propose"] -.-> I[Issue #N]
     I --> S["/start<br/>Gate 1: design"]
     S --> IMP["implement<br/>+ /code-review"]
-    IMP --> SH["/ship<br/>Gate 2 + Copilot"]
+    IMP --> SH["/ship<br/>Gate 2 + PR"]
     SH --> T["/tag<br/>release ceremony"]
     T --> R[GitHub Release]
 
@@ -34,7 +34,7 @@ graph LR
 
 1. **`/gh-issue-driven:start <issue...>`** — fetch the issue(s), recall related past work from Kagura Memory, run a **gate 1** design review (`/claude-c-suite:ask` cascading to `/ceo` for complex issues), create a typed feature branch, and hand off for implementation. Pass multiple IDs to batch issues into one branch.
 2. _(you write the code, then run `/code-review` to review the working-tree diff — the pre-PR review, before `/ship` opens a PR)_
-3. **`/gh-issue-driven:ship`** — run a **gate 2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate`), create the PR, and drive a **pluggable post-PR review loop** (Copilot, `/code-review`, or both — configurable via `review.provider`) until the PR is approved or no actionable feedback remains. A **HITL confirmation gate** pauses before the Copilot loop starts, so you can decide whether to invoke it for this PR.
+3. **`/gh-issue-driven:ship`** — run a **gate 2** parallel review battery (`cso` + `qa-lead` + `cto` advisors by default; an optional binary release gate can be configured via `gate2.binary_gate`), then create the PR. **Post-PR review is opt-in**: `review.provider` defaults to `none`, so `/ship` creates the PR and **stops** unless a provider is configured (Copilot, `/code-review`, or both) — or `/goal` drives the review for you. When a provider is set, `/ship` **delegates** the review loop to **`/gh-issue-driven:review`** (its canonical home), which drives the loop until the PR is approved or no actionable feedback remains. A **HITL confirmation gate** pauses before the review loop starts, so you can decide whether to invoke it for this PR.
 4. **`/gh-issue-driven:tag <version>`** — release ceremony: compose label-grouped release notes from the milestone, bump `plugin.json` + `marketplace.json`, update `CHANGELOG.md`, commit, annotated-tag, push with `--follow-tags`, and create the GitHub Release. `dry-run` previews everything without touching files, git, or GitHub.
 
 The whole flow is bracketed by `kagura-memory` `session-start` and `session-summary` with **auto-detect context setup** on first run, so each issue's learnings get persisted for future recall.
@@ -75,7 +75,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 /gh-issue-driven:start 142       # phase 1 (single issue)
 /gh-issue-driven:start 4 12 20   # or batch multiple issues into one branch
 # ... implement, then /code-review to review the diff ...
-/gh-issue-driven:ship            # phase 2 (gate2 + Copilot loop)
+/gh-issue-driven:ship            # phase 2 (gate2 + PR; post-PR review is opt-in)
 # ... after PR is merged, when the milestone is ready ...
 /gh-issue-driven:tag 0.3.0 dry-run   # phase 3 preview
 /gh-issue-driven:tag 0.3.0           # phase 3 execute (release ceremony)
@@ -90,11 +90,11 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 | Command | Phase | What it does |
 |---|---|---|
 | `/gh-issue-driven:start <issue...> [flags]` | 1 | Fetch issue(s), run gate 1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]` (suppress green/yellow HITL for unattended runs; used by `/goal`). |
-| `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, HITL gate, drive Copilot loop, save session memory. Flags: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]` (suppress green/yellow + Copilot-invocation HITL for unattended runs; used by `/goal`). |
-| `/gh-issue-driven:review [flags]` | 2 | Re-run the post-PR review loop on an already-open PR (Copilot, `/code-review`, or both). Re-entrant by design. Flags: `dry-run`, `force`. |
+| `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, save session memory. Post-PR review is opt-in (`review.provider`, default `none`); when configured, `/ship` **delegates** the review loop to `/gh-issue-driven:review`. Flags: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]` (suppress green/yellow + review-invocation HITL for unattended runs; used by `/goal`). |
+| `/gh-issue-driven:review [flags]` | 2 | **Canonical home of the post-PR review loop** — drive (or re-run) review on an already-open PR (Copilot, `/code-review`, or both, per `review.provider`). Re-entrant by design. Flags: `dry-run`, `force`, `--autonomous[=<level>]`. |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | Release ceremony: compose release notes, bump manifests, update `CHANGELOG.md`, commit, annotated-tag, push, create GitHub Release. Flags: `dry-run`, `force`, `--notes-file=<path>`. |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | Draft and file a new issue: dedup check, quality review, PM enrichment, HITL confirmation. Flags: `dry-run`, `force`. |
-| `/gh-issue-driven:goal <milestone> [flags]` | G | **Drive a whole milestone to PR**: for each open issue, run `start` → implement (TDD + a cheap inner-review pass over the diff, default Haiku tier) → `ship` (gate2 + PR + Copilot loop + session-summary), checkpointing to resumable state between issues. Gates on **red** verdicts (HITL); green/yellow auto-continue. Forwards `--autonomous=<goal.autonomy>` to the delegated `start`/`ship`, so under `red-only`/`unattended` their green/yellow + Copilot-invocation prompts are suppressed and the green/yellow path runs fully unattended (#74). Never merges, never pushes to the default branch. Cost control: PR-review (Copilot) is optional via `review.provider` or the per-run `no-copilot` flag; the inner-review model is selectable via `goal.inner_review.model` or `review-model=<tier>`. Flags: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>`. |
+| `/gh-issue-driven:goal <milestone> [flags]` | G | **Drive a whole milestone to PR**: for each open issue, run `start` → implement (TDD + a cheap inner-review pass over the diff, default Haiku tier) → `ship` (gate2 + PR + session-summary; post-PR review opt-in), checkpointing to resumable state between issues. Gates on **red** verdicts (HITL); green/yellow auto-continue. Forwards `--autonomous=<goal.autonomy>` to the delegated `start`/`ship`, so under `red-only`/`unattended` their green/yellow + review-invocation prompts are suppressed and the green/yellow path runs fully unattended (#74). Never merges, never pushes to the default branch. Cost control: post-PR review is opt-in via `review.provider` (default `none`) or the per-run `no-copilot` flag; the fix-application model is right-sized via `review.model` (default `auto`); the inner-review model is selectable via `goal.inner_review.model` (default `auto`) or `review-model=<tier>`. Flags: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>`. |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | Read-only environment health check. |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | Show effective config or stamp a fresh template. |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | Show gh-issue-driven state for a branch (or all branches, or saved proposals). |
@@ -117,7 +117,7 @@ After the branch is created, `/start` prints a **suggested workflow** and offers
 - **Orchestration** — chosen by the change's size/risk: direct edits (trivial / docs / rename / config) · `/feature-dev:feature-dev` (moderate) · `superpowers:writing-plans → subagent-driven-development` (large / plan-driven). Pick at most one — **avoid overkill**.
 - **Test-first discipline** — `superpowers:test-driven-development` is the **default** wherever the change has a test surface (any real logic), applied *inside* the chosen orchestration (red→green→refactor), **not** as a separate route. Opt out only for pure docs / formatting / rename / config. The default holds even when the skill isn't installed (drive it test-first manually). This mirrors `/goal` step 5b — TDD is the default implementation discipline in **both** commands. The one-tap *continue* only auto-launches an orchestration (`/feature-dev`, or a plan draft); the test-first discipline is applied within whatever it runs.
 
-### Phase 2 — `/gh-issue-driven:ship` (Gate 2: pre-PR review battery + Copilot loop)
+### Phase 2 — `/gh-issue-driven:ship` (Gate 2: pre-PR review battery + PR creation)
 
 Runs **after** the implementation, **before** the PR is created. By default, **3 advisor reviewers** fire in parallel in a single Claude turn (advisor-only mode):
 
@@ -273,7 +273,7 @@ The plan is **produced in-line** as part of the `/start` conversation — the sa
 
 ## Copilot review loop
 
-After `gh pr create`, `/gh-issue-driven:ship` fires the reviewer add and pauses at a **HITL confirmation gate** (since v0.3.0) before entering the polling loop:
+The review loop is the canonical job of **`/gh-issue-driven:review`** (`/ship` delegates to it when `review.provider` is not `none`). It fires the reviewer add and pauses at a **HITL confirmation gate** (since v0.3.0) before entering the polling loop:
 
 ```text
 Copilot review on PR #<num>
@@ -371,6 +371,9 @@ Key options:
 | `gate2.binary_gate` | `null` (off) | Optional override-blocking binary gate. Set to a skill name (e.g. `/claude-c-suite:audit`) to enable. |
 | `gate2.green_continue_requires_confirm` | `true` | Pause for HITL confirmation on green gate2 verdict before PR creation. Set to `false` to continue silently. |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
+| `review.provider` | `none` | Post-PR review provider — `none` (opt-in: `/ship` creates the PR and stops), `copilot`, `code-review`, or `both`. When set, `/ship` delegates the loop to `/gh-issue-driven:review`. |
+| `review.model` | `auto` | Right-sizes the model that **applies review fixes** (`auto`\|`haiku`\|`sonnet`\|`opus`). `auto` picks a tier from the feedback's scope. |
+| `copilot.enabled` | _(deprecated)_ | No longer consulted — use `review.provider` instead. |
 | `copilot.max_loops` | `5` | Maximum review iterations. |
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |
 | `copilot.max_wait_sec` | `900` | Max wait per loop iteration (15 min). |
@@ -469,9 +472,9 @@ For each:
 
 `gh-issue-driven` has been used to ship its own PRs against `JFK/gh-issue-driven` since v0.1.0 (15+ releases). The following known sharp edges exist as of v0.7.0. None lose data or corrupt state, but they affect the operator experience:
 
-- **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/ship` once the Copilot review lands. Architectural fix tracked in #23 (move detection into step 14's polling loop).
+- **Slow Mode A repos can false-positive `silent_no_op`** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — the `/gh-issue-driven:review` loop has a 30s bounded wait for the first Copilot signal. On repos where GitHub's "Automatic Copilot code review" auto-review takes longer than 30s (observed up to ~4 min on `JFK/gh-issue-driven`), the wait expires and the loop is incorrectly skipped with `exit_reason=silent_no_op`. The state file records the diagnosis correctly; recovery is to re-run `/gh-issue-driven:review` once the Copilot review lands. Architectural fix tracked in #23 (fold detection into the polling loop).
 - **`/gh-issue-driven:doctor` does not validate context_id resolution** — the configured `memory.context_id` is resolved at `/start` time, but `/doctor` does not yet check whether it resolves successfully. Tracked as a follow-up.
-- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in step 14's polling loop are not covered by automated tests yet (tracked in [#10](https://github.com/JFK/gh-issue-driven/issues/10)).
+- **No loop state machine tests** — the verdict parser and Copilot detection function are fixture-driven tested, but the 5 terminal `exit_reason` states in the `/gh-issue-driven:review` polling loop are not covered by automated tests yet (tracked in [#10](https://github.com/JFK/gh-issue-driven/issues/10)).
 - **`claude-c-suite:audit` cannot evaluate this plugin via its declared mechanism** — the audit skill's `scripts/audit.py` does not exist in `gh-issue-driven`'s layout. The de-facto baseline is `lint.yml` (which validates frontmatter, JSON syntax, version sync, fixture tests, and inline-jq sync).
 
 For the full list of known issues, see the [v0.4.0 milestone](https://github.com/JFK/gh-issue-driven/milestone/6).

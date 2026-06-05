@@ -6,7 +6,7 @@
 
 [English](README.md) | **日本語**
 
-> **GitHub issue 駆動開発のフルライフサイクルワークフロー: セッションコンテキストからの `propose` → 設計ゲート付き `start` → advisor + Copilot ゲート付き `ship`（全フェーズ境界に HITL 確認）→ リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、per-repo Kagura Memory 自動検出付き。**
+> **GitHub issue 駆動開発のフルライフサイクルワークフロー: セッションコンテキストからの `propose` → 設計ゲート付き `start` → advisor ゲート付き `ship`（事後レビューは opt-in、全フェーズ境界に HITL 確認）→ リリース儀式自動化 `tag`。マルチ issue バッチ、プラガブル事後レビュア、per-repo Kagura Memory 自動検出付き。**
 
 `gh-issue-driven` は [Claude Code](https://claude.com/claude-code) のプラグインですが、本質は**オーケストレーション・ハーネス**です。Claude Code 自身のスキルやエージェント（設計レビュア、記憶リコール、`/code-review`、Copilot）を、各フェーズ境界で人間が確認できる 1 本の「Issue → Release」パイプラインに束ねる薄いメタ層です。コードジェネレータでも単発コマンドでもなく、それらのスキルをガバナンスゲートと記憶とともに*編成する*層です。
 
@@ -17,7 +17,7 @@ graph LR
     P["/propose"] -.-> I[Issue #N]
     I --> S["/start<br/>Gate1 設計"]
     S --> IMP["実装 + /code-review"]
-    IMP --> SH["/ship<br/>Gate2 + Copilot"]
+    IMP --> SH["/ship<br/>Gate2 + PR"]
     SH --> T["/tag<br/>リリース儀式"]
     T --> R[GitHub Release]
 
@@ -34,7 +34,7 @@ graph LR
 
 1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate 1**(設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション)を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
 2. _(あなたがコードを書き、`/code-review` で作業ツリーの diff をレビュー — `/ship` で PR を作る前の事前レビュー)_
-3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)、PR 作成、**プラガブルな事後レビューループ**(Copilot / `/code-review` / both — `review.provider` で設定可能)を自動実行。Copilot ループに入る直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
+3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)を回し、PR を作成。**事後レビューは opt-in**: `review.provider` のデフォルトは `none` なので、`/ship` は PR を作って **停止** します（プロバイダ未設定の場合）。プロバイダ(Copilot / `/code-review` / both)を設定すると、`/ship` はレビューループを **`/gh-issue-driven:review`**（その正規の置き場所）へ **委譲** します。あるいは `/goal` がレビューを代行します。プロバイダ設定時はレビューループ開始直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
 4. **`/gh-issue-driven:tag <version>`** — リリース儀式: milestone の closed issues をラベルごとにグルーピングしてリリースノート生成、`plugin.json` + `marketplace.json` の version bump、`CHANGELOG.md` 更新、コミット、annotated tag、`--follow-tags` で push、GitHub Release 作成。`dry-run` ですべてを事前プレビュー可能(ファイル・git・GitHub を一切触らない)。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、初回実行時は **context 自動検出**で設定不要。issue ごとの学びが永続化されます。
@@ -74,7 +74,7 @@ graph LR
 /gh-issue-driven:start 142       # フェーズ1（単一 issue）
 /gh-issue-driven:start 4 12 20   # 複数 issue を1ブランチにまとめることも可能
 # ... 実装、その後 /code-review で diff レビュー ...
-/gh-issue-driven:ship            # フェーズ2 (gate2 + Copilot ループ)
+/gh-issue-driven:ship            # フェーズ2 (gate2 + PR 作成。事後レビューは opt-in)
 # ... PR が main にマージされ、milestone が release ready になったら ...
 /gh-issue-driven:tag 0.3.0 dry-run   # フェーズ3 プレビュー
 /gh-issue-driven:tag 0.3.0           # フェーズ3 実行 (リリース儀式)
@@ -89,11 +89,11 @@ graph LR
 | コマンド | フェーズ | 動作 |
 |---|---|---|
 | `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/goal` が使用） |
-| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、HITL ゲート、Copilot ループ、session 保存。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + Copilot 起動 HITL を抑制。主に `/goal` が使用） |
-| `/gh-issue-driven:review [flags]` | 2 | open 済み PR に対して事後レビューループを再実行 (Copilot / `/code-review` / both)。re-entrant 設計。フラグ: `dry-run`, `force` |
+| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、session 保存。事後レビューは opt-in (`review.provider`、デフォルト `none`)、設定時は `/ship` がレビューループを `/gh-issue-driven:review` へ **委譲**。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + レビュー起動 HITL を抑制。主に `/goal` が使用） |
+| `/gh-issue-driven:review [flags]` | 2 | **事後レビューループの正規の置き場所** — open 済み PR に対してレビューを実行(または再実行) (Copilot / `/code-review` / both、`review.provider` に従う)。re-entrant 設計。フラグ: `dry-run`, `force`, `--autonomous[=<level>]` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
-| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、既定は Haiku ティア）→ `ship`（gate2 + PR + Copilot ループ + session-summary）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + Copilot 起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: PR レビュー（Copilot）は `review.provider` または毎回指定の `no-copilot` フラグで任意化でき、inner-review のモデルは `goal.inner_review.model` または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
+| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、既定は Haiku ティア）→ `ship`（gate2 + PR + session-summary; PR後レビューは opt-in）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + レビュー起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: 事後レビューは `review.provider`（デフォルト `none`）または毎回指定の `no-copilot` フラグで opt-in、修正適用モデルは `review.model`（デフォルト `auto`）で right-size、inner-review のモデルは `goal.inner_review.model`（デフォルト `auto`）または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |
@@ -116,7 +116,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 - **オーケストレーション** — 変更の規模/リスクで選ぶ: 直接編集（trivial / docs / rename / config）・`/feature-dev:feature-dev`（moderate）・`superpowers:writing-plans → subagent-driven-development`（large / plan-driven）。**overkill を避け**、選ぶのは最大1つ。
 - **テストファースト規律** — `superpowers:test-driven-development` は、テスト面がある変更（実ロジックを含むもの）では **デフォルト** で適用される規律。選んだオーケストレーションの **内側** で red→green→refactor を回すものであり、独立したルートでは **ない**。opt-out は純粋な docs / formatting / rename / config のみ。スキル未インストールでもデフォルトは維持（手動で test-first）。これは `/goal` step 5b と対称 — TDD は **両コマンド** でデフォルトの実装規律。ワンタップの *continue* が自動起動するのはオーケストレーション（`/feature-dev` か plan 起案）のみで、テストファースト規律はその内側で適用されます。
 
-### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + Copilot ループ)
+### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + PR 作成)
 
 実装の **後**、PR 作成の **前** に走ります。デフォルトでは **3つの advisor reviewer** が 1ターン内で並列発火 (advisor-only mode)：
 
@@ -272,7 +272,7 @@ plan は `/start` 会話の **in-line で生成** されます — `/claude-c-su
 
 ## Copilot レビューループ
 
-`gh pr create` の後、`/gh-issue-driven:ship` はレビュアの add を発火し、polling loop に入る前に **HITL 確認ゲート** で立ち止まります(v0.3.0 以降):
+レビューループは **`/gh-issue-driven:review`** の正規の仕事です(`review.provider` が `none` でないとき `/ship` がここへ委譲)。レビュアの add を発火し、polling loop に入る前に **HITL 確認ゲート** で立ち止まります(v0.3.0 以降):
 
 ```text
 Copilot review on PR #<num>
@@ -369,6 +369,9 @@ skill が見つからない場合の degrade：
 | `gate2.binary_gate` | `null` (off) | optional な override 不可バイナリゲート。skill 名 (例: `/claude-c-suite:audit`) を設定すると有効化 |
 | `gate2.green_continue_requires_confirm` | `true` | green verdict 時に PR 作成前で HITL 確認。`false` でスキップ |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
+| `review.provider` | `none` | 事後レビューのプロバイダ — `none`（opt-in: `/ship` は PR を作って停止）、`copilot`、`code-review`、`both`。設定時は `/ship` がループを `/gh-issue-driven:review` へ委譲 |
+| `review.model` | `auto` | **レビュー修正を適用する**モデルを right-size（`auto`\|`haiku`\|`sonnet`\|`opus`）。`auto` はフィードバックの規模からティアを選択 |
+| `copilot.enabled` | _(deprecated)_ | もはや参照されません — 代わりに `review.provider` を使用 |
 | `copilot.max_loops` | `5` | 最大ループ数 |
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
 | `copilot.max_wait_sec` | `900` | 1ループあたりの最大待機時間 |
@@ -442,9 +445,9 @@ Copilot ループは設定なしで動作しますが、以下の2つのオプ�
 
 `gh-issue-driven` は v0.1.0 以来 15 回以上のリリースで `JFK/gh-issue-driven` 自身の PR を ship してきました。v0.7.0 時点で以下の既知の sharp edge があります。データ損失や state corruption は無いものの、operator experience に影響します:
 
-- **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:ship` step 13 の bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/ship` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を step 14 の polling loop に移動)。
+- **遅い Mode A repo で `silent_no_op` の false-positive** ([#23](https://github.com/JFK/gh-issue-driven/issues/23)) — `/gh-issue-driven:review` ループの bounded wait は 30秒。GitHub の "Automatic Copilot code review" auto-review が 30秒以上かかる repo (`JFK/gh-issue-driven` で実測 ~4分) では wait が expire し、loop が誤って skip され `exit_reason=silent_no_op` が記録される。state file の診断は正しいので、Copilot review が landing したら `/gh-issue-driven:review` を再実行すれば復旧可能。アーキテクチャ的な修正は #23 で追跡 (検出を polling loop に統合)。
 - **`/gh-issue-driven:doctor` が context_id の解決を validate しない** — `memory.context_id` は `/start` 時に解決されるが、`/doctor` ではまだ解決チェックが行われない。follow-up として追跡。
-- **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、step 14 polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない ([#10](https://github.com/JFK/gh-issue-driven/issues/10) で追跡)。
+- **loop state machine のテスト無し** — verdict parser と Copilot detection function は fixture-driven test されているが、`/gh-issue-driven:review` polling loop の 5 つの terminal `exit_reason` state は自動テストで cover されていない ([#10](https://github.com/JFK/gh-issue-driven/issues/10) で追跡)。
 - **`claude-c-suite:audit` がこのプラグインを評価できない** — audit skill の `scripts/audit.py` がこのプラグインの layout に存在しない。de-facto baseline は `lint.yml` (frontmatter 検証、JSON syntax、version sync、fixture test、inline-jq sync を validate)。
 
 既知 issue の全リストは [v0.4.0 milestone](https://github.com/JFK/gh-issue-driven/milestone/6) を参照してください。

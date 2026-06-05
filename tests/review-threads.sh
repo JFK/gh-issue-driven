@@ -2,11 +2,11 @@
 # tests/review-threads.sh
 #
 # Validates the UNRESOLVED extraction jq filter used by the Copilot reply/resolve
-# step (ship.md step 14.d, review.md step 5b). The filter selects review threads
-# that are (a) unresolved AND (b) authored by the Copilot reviewer login, emitting
+# step (review.md step 5b). The filter selects review threads that are
+# (a) unresolved AND (b) authored by the Copilot reviewer login, emitting
 # {threadId, commentId, path, line, body} for each.
 #
-# The filter below is kept SEMANTICALLY in sync with the inline jq in ship.md /
+# The filter below is kept SEMANTICALLY in sync with the inline jq in
 # review.md. When you change one, change the other in the same commit.
 #
 # Run from the repo root: bash tests/review-threads.sh
@@ -27,7 +27,7 @@ if [ ! -f "$FIXTURE" ]; then
   exit 1
 fi
 
-# UNRESOLVED extraction filter (mirror of the inline filter in ship.md step 14.d)
+# UNRESOLVED extraction filter (mirror of the inline filter in review.md step 5b)
 FILTER='
   (.data.repository.pullRequest.reviewThreads.nodes // [])[]
   | select(.isResolved==false)
