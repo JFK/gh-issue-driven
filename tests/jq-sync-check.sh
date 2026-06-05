@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/jq-sync-check.sh
 #
-# Mechanically verifies that the inline jq filter in commands/ship.md step 13
+# Mechanically verifies that the inline jq filter in commands/review.md step 5b
 # is **semantically equivalent** to the canonical detect() function in
 # tests/copilot-detection.jq. The two are intentionally NOT source-identical:
 # the inline form uses `any(test(...))` (predicate), the canonical uses
@@ -15,7 +15,7 @@
 # fully derivable from `detection_method` (queued == (detection_method != "neither")).
 #
 # How: extracts the inline filter body between `# JQ_DETECT_FILTER_BEGIN` and
-# `# JQ_DETECT_FILTER_END` sentinel comments in ship.md, builds a complete jq
+# `# JQ_DETECT_FILTER_END` sentinel comments in review.md, builds a complete jq
 # program from it, runs it against every fixture in tests/fixtures/copilot-detection/,
 # and compares the resulting `detection_method` string against running
 # tests/copilot-detection.jq on the same fixture.
@@ -29,7 +29,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-SHIP_MD="$REPO_ROOT/commands/ship.md"
+REVIEW_MD="$REPO_ROOT/commands/review.md"
 CANONICAL_JQ="$REPO_ROOT/tests/copilot-detection.jq"
 FIXTURES_DIR="$REPO_ROOT/tests/fixtures/copilot-detection"
 
@@ -38,7 +38,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-for required in "$SHIP_MD" "$CANONICAL_JQ"; do
+for required in "$REVIEW_MD" "$CANONICAL_JQ"; do
   if [ ! -f "$required" ]; then
     echo "FAIL: required file missing: $required"
     exit 1
@@ -59,10 +59,10 @@ INLINE_BODY=$(awk '
   /# JQ_DETECT_FILTER_BEGIN/ && !capture { capture = 1; next }
   /# JQ_DETECT_FILTER_END/   && capture  { exit }
   capture { print }
-' "$SHIP_MD")
+' "$REVIEW_MD")
 
 if [ -z "$INLINE_BODY" ]; then
-  echo "FAIL: could not extract inline filter from $SHIP_MD"
+  echo "FAIL: could not extract inline filter from $REVIEW_MD"
   echo "      expected sentinels: # JQ_DETECT_FILTER_BEGIN ... # JQ_DETECT_FILTER_END"
   exit 1
 fi
@@ -115,7 +115,7 @@ echo "$PASSED in sync / $FAILED drifted / $TOTAL total"
 
 if [ "$FAILED" -ne 0 ]; then
   echo
-  echo "ship.md inline jq has drifted from tests/copilot-detection.jq."
+  echo "review.md inline jq has drifted from tests/copilot-detection.jq."
   echo "Update both in the same commit, then re-run this check."
   exit 1
 fi
