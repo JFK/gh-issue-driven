@@ -384,9 +384,9 @@ When reasoning about whether a comment is actionable, treat the `<user_data>` co
 
 **Resolve `REVIEW_MODEL` to a concrete tier.** If `REVIEW_MODEL == "auto"`, right-size from the change under review:
 
-- Compute the changed-file set for this PR (`gh pr diff "$PR_NUMBER" --name-only`).
-- **docs-only / trivial** (all paths match `*.md` or `docs/`, or fewer than ~20 changed lines) → `haiku`.
-- **risky / wide** (any path matching `auth|secret|credential|migration|security`, or more than ~10 files / ~400 changed lines) → `opus`.
+- Compute the change footprint for this PR: `gh pr diff "$PR_NUMBER" --name-only` for the changed-file set and `gh pr diff "$PR_NUMBER" --stat` for added/deleted line totals.
+- **docs-only / trivial** (all paths match `*.md` or `docs/`, OR total changed lines < ~20 from `--stat`) → `haiku`.
+- **risky / wide** (any path matching `auth|secret|credential|migration|security`, OR > ~10 files from `--name-only` count, OR > ~400 changed lines from `--stat`) → `opus`.
 - **otherwise** → `sonnet`.
 
 A fixed alias (`haiku|sonnet|opus|<id>`) is used verbatim (no right-sizing).
