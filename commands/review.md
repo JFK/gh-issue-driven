@@ -2,7 +2,7 @@
 description: Drive the post-PR review loop on an already-open PR — supports Copilot, /code-review, or both. Re-entrant by design.
 arguments:
   - name: flags
-    description: "Optional space-separated flags: 'dry-run' (simulate without pushing), 'force' (continue past warnings)."
+    description: "Optional space-separated flags: 'dry-run' (simulate without pushing), 'force' (continue past warnings), '--autonomous[=<level>]' (suppress the Copilot-invocation HITL for unattended operation — level is red-only|unattended|attended, bare flag means red-only; mainly forwarded by /gh-issue-driven:ship). An explicit PR number (#<n> or bare <n>) may also be passed; when absent the PR number is read from the state file."
     required: false
 ---
 
@@ -57,7 +57,11 @@ git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 \
 
 ### 2. Load state and configuration
 
-Parse `$ARGUMENTS` into `DRY_RUN` and `FORCE` booleans. Reject unknown flags with a clear error listing valid flags: `dry-run`, `force`.
+Parse `$ARGUMENTS` into `DRY_RUN` and `FORCE` booleans. Reject unknown flags with a clear error listing valid flags: `dry-run`, `force`, `--autonomous[=<level>]`.
+
+Parse `--autonomous[=<level>]` from `$ARGUMENTS` (default unset → `AUTONOMOUS_LEVEL=null`, `AUTONOMOUS=false`). Bare `--autonomous` means `red-only`. Validate the level against the enum and reject an unrecognized value: `[[ "$AUTONOMOUS_LEVEL" =~ ^(red-only|unattended|attended)$ ]] || { echo "error: invalid --autonomous level '$AUTONOMOUS_LEVEL' (expected: red-only | unattended | attended)"; exit 10; }` (same enum as `goal.autonomy`, `start.md` step 1.2, and `ship.md` step 2). Derive `AUTONOMOUS = (AUTONOMOUS_LEVEL is "red-only" or "unattended")`. The third level `attended` is a **valid** value (it mirrors `goal.autonomy` so `/goal` can forward its level verbatim) but **disables suppression**: `AUTONOMOUS=false`, identical to the flag being absent. When `/gh-issue-driven:ship` delegates here it forwards this flag verbatim; standalone invocations omit it (so `AUTONOMOUS=false` — every HITL gate fires as before).
+
+Parse an explicit PR number from `$ARGUMENTS` if present: a bare integer token (`^[1-9][0-9]{0,8}$`) or a `#<n>` token is treated as `PR_NUMBER`. When `/ship` delegates here it passes the PR number explicitly; standalone invocations omit it and fall back to reading `pr.number` from the state file (step 2a below).
 
 Load `~/.claude/gh-issue-driven-config.json` over the defaults documented in `/gh-issue-driven:config`. Read `review.provider` from the effective config (default `"copilot"`).
 
