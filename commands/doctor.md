@@ -69,7 +69,9 @@ Group checks under three headings: **Required**, **Recommended**, **Informationa
 
 ### Copilot review setup (interactive — runs before the rest of the recommended checks)
 
-The Copilot review loop in `/gh-issue-driven:ship` works in two modes. **One must be true** for the loop to function end-to-end:
+> **Note:** `copilot.enabled` is **deprecated and ignored** as of v0.12.x. Review is now opt-in: `review.provider` defaults to `none`, and the Copilot review loop lives in `/gh-issue-driven:review` (step 5), not in `/gh-issue-driven:ship`. This section is still useful for verifying that Copilot is reachable when the operator does choose `review.provider=copilot`.
+
+The Copilot review loop in `/gh-issue-driven:review` works in two modes. **One must be true** for the loop to function end-to-end:
 
 - **Mode A — Automatic Copilot code review (recommended)**: a per-repo setting at `https://github.com/<owner>/<repo>/settings/code-review`. When enabled, GitHub auto-requests Copilot's review on PR open AND on every push to the PR. The plugin's `--add-reviewer` call becomes redundant (in the good sense). **Works on any `gh` CLI version.**
 - **Mode B — Manual via `gh pr edit --add-reviewer @copilot`**: requires `gh` CLI **>= 2.88.0** (the version that added real Copilot reviewer support per the March 2026 changelog). Earlier `gh` versions silently no-op (exit 0, no error, but the API server-side never queues Copilot — see issue #15).
@@ -121,7 +123,7 @@ Otherwise:
      ```
      ### Copilot code review setup
 
-     The Copilot review loop in /gh-issue-driven:ship works in two modes. ONE must be enabled:
+     The Copilot review loop in /gh-issue-driven:review works in two modes. ONE must be enabled:
 
        Mode A — Automatic (recommended)
          Repo setting: https://github.com/<owner>/<repo>/settings/code-review
@@ -422,7 +424,7 @@ CI scripts can parse with `grep '^PLUGIN_CHECK'` and fail on `status=unexpected`
     - Present → `✅ copilot-instructions: .github/copilot-instructions.md found`
     - Absent → `ℹ️  copilot-instructions: .github/copilot-instructions.md not found — Copilot review quality improves with project-specific instructions. See: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review`
 
-    This is informational only — never `⚠️` or `❌`. The file is optional but recommended for repos that use the Copilot review loop (`/gh-issue-driven:ship` step 14).
+    This is informational only — never `⚠️` or `❌`. The file is optional but recommended for repos that use the Copilot review loop (`/gh-issue-driven:review` step 5).
 
 18. **Worktree gitignore entry** (informational — only relevant when `/gh-issue-driven:start --worktree` is used without `superpowers` installed)
 
