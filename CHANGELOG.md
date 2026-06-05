@@ -2,6 +2,16 @@
 
 All notable changes are documented in [GitHub Releases](https://github.com/JFK/gh-issue-driven/releases).
 
+## [Unreleased]
+
+### Changed
+- **Post-PR review is now opt-in.** `review.provider` defaults to `none`; `/ship` creates the PR and stops unless review is explicitly configured or `/goal` runs it. (#83)
+- `/ship` delegates the review loop to `/gh-issue-driven:review` (now its canonical home); `ship.md` is ~40% smaller. (#83)
+- New `review.model` (`auto|haiku|sonnet|opus`, default `auto`) right-sizes the fix-application model. `goal.inner_review.model` default is now `auto`. (#83)
+
+### Deprecated
+- `copilot.enabled` is no longer consulted — use `review.provider`. (#83)
+
 ## [v0.12.1](https://github.com/JFK/gh-issue-driven/releases/tag/v0.12.1) — 2026-06-05
 
 ## [v0.12.0](https://github.com/JFK/gh-issue-driven/releases/tag/v0.12.0) — 2026-06-04
