@@ -52,7 +52,7 @@ HITL_DECISION_VALUES=(
 
 # autonomy level: the --autonomous=<level> flag enum, mirrored from
 # goal.autonomy. Must stay identical across goal.md (the source of truth)
-# and the two delegated commands that parse the flag (start.md, ship.md).
+# and the delegated commands that parse the flag (start.md, ship.md, review.md).
 # Added with #74 (--autonomous HITL suppression).
 AUTONOMY_LEVEL_VALUES=(
   "red-only"
