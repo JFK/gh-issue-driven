@@ -92,7 +92,7 @@ When **`reply_to_threads`** is `true` (default), the loop posts an in-thread rep
 
 When **`resolve_threads`** is `true` (default), the loop additionally **resolves actionable threads only** (via the GitHub GraphQL `resolveReviewThread` mutation — there is no REST endpoint for this). Non-actionable threads are deliberately **left open** so the reviewer can follow up.
 
-**Implementation notes**: thread IDs come from a GraphQL `pullRequest.reviewThreads` query (the polling JSON in step 14.a does not include inline threads). All reply/resolve calls are **best-effort** — a failure (e.g. insufficient permissions on a fork PR) logs a warning but never aborts the loop, since the fix itself is already pushed. Both behaviors are skipped entirely under `DRY_RUN`. Counts are recorded in state as `review.copilot.threads_replied` / `threads_resolved` and surfaced by `/gh-issue-driven:status`.
+**Implementation notes**: thread IDs come from a GraphQL `pullRequest.reviewThreads` query (the polling JSON in review.md step 5b does not include inline threads). All reply/resolve calls are **best-effort** — a failure (e.g. insufficient permissions on a fork PR) logs a warning but never aborts the loop, since the fix itself is already pushed. Both behaviors are skipped entirely under `DRY_RUN`. Counts are recorded in state as `review.copilot.threads_replied` / `threads_resolved` and surfaced by `/gh-issue-driven:status`.
 
 **Set `reply_to_threads` to `false`** to restore the legacy behavior (no per-thread replies; the loop just re-requests review). **Set `resolve_threads` to `false`** to reply without resolving (leave all threads for the reviewer to close).
 
