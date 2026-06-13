@@ -6,9 +6,11 @@ Reference implementation of the gh-issue-driven verdict parser contract.
 Runs against markdown fixtures in tests/fixtures/verdicts/ and validates
 each fixture's parsed verdict against tests/fixtures/verdicts/expected.json.
 
-Two parser modes:
-  - advisory: gate1 + gate2 advisors → green | yellow | red
-  - binary:   gate2 binary gate      → pass | fail
+Three parser modes:
+  - advisory: gate2 advisors (and gate1's green/yellow/red path) → green | yellow | red
+  - binary:   gate2 binary gate                                  → pass | fail
+  - gate1:    gate1 decline-detection (start.md step 10)         → green | yellow | red | decline
+              (`decline` is structured-only — never a heuristic result)
 
 Both modes share the same two-step contract:
   1. Structured verdict line (last wins): ^\\s*##\\s*Verdict:\\s*<token>\\b
@@ -34,6 +36,13 @@ ADVISORY_PATTERN = re.compile(
 
 BINARY_PATTERN = re.compile(
     r"^\s*##\s*Verdict:\s*(pass|fail)\b", re.IGNORECASE | re.MULTILINE
+)
+
+# gate1 emits the advisory tokens PLUS `decline` (the /ceo-escalation signal).
+# This MUST match start.md step 10's expanded scan
+# `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b`.
+GATE1_PATTERN = re.compile(
+    r"^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b", re.IGNORECASE | re.MULTILINE
 )
 
 # --- Heuristic tokens (step 2 of the contract) ---
@@ -83,6 +92,24 @@ def parse_advisory(text: str) -> str:
 
     # Default
     return "green"
+
+
+def parse_gate1(text: str) -> str:
+    """Parse gate1 verdict: green | yellow | red | decline.
+
+    Used by gate1 (start.md step 10's decline-detection scan). `decline` is the
+    /ceo-escalation signal and is ONLY ever a structured-line token — a free-form
+    mention of "decline" in the reasoning body must NOT trigger it. So the
+    heuristic fallback (no structured line) reuses the advisory classifier, which
+    can never return `decline`.
+    """
+    # Step 1: structured verdict line — last wins (includes decline)
+    matches = GATE1_PATTERN.findall(text)
+    if matches:
+        return matches[-1].lower()
+
+    # Step 2: no structured line — decline is never heuristic; defer to advisory.
+    return parse_advisory(text)
 
 
 def parse_binary(text: str) -> str:
@@ -138,6 +165,8 @@ def main() -> int:
             actual = parse_advisory(text)
         elif mode == "binary":
             actual = parse_binary(text)
+        elif mode == "gate1":
+            actual = parse_gate1(text)
         else:
             print(f"FAIL {filename}: unknown mode '{mode}'")
             failed += 1
