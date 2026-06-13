@@ -2,6 +2,8 @@
 
 All notable changes are documented in [GitHub Releases](https://github.com/JFK/gh-issue-driven/releases).
 
+## [v0.14.0](https://github.com/JFK/gh-issue-driven/releases/tag/v0.14.0) — 2026-06-13
+
 ## [v0.13.0](https://github.com/JFK/gh-issue-driven/releases/tag/v0.13.0) — 2026-06-05
 
 ## [v0.12.1](https://github.com/JFK/gh-issue-driven/releases/tag/v0.12.1) — 2026-06-05
