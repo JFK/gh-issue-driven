@@ -38,6 +38,11 @@ test "$(jq -r .version .claude-plugin/plugin.json)" \
 
 # Frontmatter parses (matches CI)
 python3 .github/workflows/check-frontmatter.py
+
+# Command-file size census — informational table + drift vs snapshot (never fails)
+bash tests/token-baseline.sh --check
+# Self-test for the census tool itself
+bash tests/token-baseline-test.sh
 ```
 
 To try the plugin in a sandbox without publishing:
@@ -97,6 +102,20 @@ The fixture itself is markdown-only, so the measurement is not affected by netwo
 ### When the measurement is not required
 
 Only the four token-efficiency flags (and their config equivalents) carry this measurement obligation. PRs that don't change cascade gating or skill invocation paths can skip the table — `rtk gain` is for verifying claims about token impact, not a universal PR requirement.
+
+## Static command-file size baseline (`tests/token-baseline.sh`)
+
+`rtk gain` above measures *runtime* token consumption. This is the complementary *static* measure: a deterministic census of the command prompt files themselves (`commands/*.md`), used to prove the per-command token reductions in the v0.14.0 optimization milestone (#87) and to catch accidental bloat.
+
+```bash
+bash tests/token-baseline.sh --check    # print the per-file table + drift vs snapshot (always exits 0)
+bash tests/token-baseline.sh --update   # refresh the committed snapshot after an intended change
+```
+
+- `~tokens` is an **approximation** (`bytes / 4`) — no tokenizer is involved; a byte census is enough to track reductions.
+- The committed snapshot lives at `tests/fixtures/token-baseline.txt`. A compression PR is expected to change it — run `--update` and commit the refreshed snapshot as part of the PR so the diff shows the reduction.
+- Byte counts are reproducible across Windows/WSL and Linux CI: `commands/*.md` are pinned to LF via `.gitattributes`, and the script strips `CR` before counting.
+- `--check` is **informational only** (it never hard-fails on growth or shrinkage). A bloat hard-fail guard is intentionally deferred until after the compression milestone.
 
 ## Design principles
 
