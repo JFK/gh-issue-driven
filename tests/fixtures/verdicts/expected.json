@@ -23,5 +23,8 @@
   "edge-leading-whitespace-verdict-01.md":        {"mode": "advisory", "expected": "yellow"},
   "edge-verdict-with-punctuation-01.md":          {"mode": "advisory", "expected": "yellow"},
   "edge-binary-structured-overrides-heuristic-01.md": {"mode": "binary", "expected": "pass"},
-  "edge-red-heuristic-do-not-proceed-01.md":      {"mode": "advisory", "expected": "red"}
+  "edge-red-heuristic-do-not-proceed-01.md":      {"mode": "advisory", "expected": "red"},
+  "gate1-decline-structured-01.md":               {"mode": "gate1",    "expected": "decline"},
+  "gate1-decline-then-green-01.md":               {"mode": "gate1",    "expected": "green"},
+  "gate1-decline-in-body-01.md":                  {"mode": "gate1",    "expected": "green"}
 }
