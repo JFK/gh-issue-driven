@@ -1,0 +1,9 @@
+# Keep command prompt files and the token-baseline snapshot LF-normalized so the
+# size census (tests/token-baseline.sh, issue #87) is byte-for-byte reproducible
+# across Windows/WSL (CRLF risk) and Linux CI (LF).
+commands/*.md text eol=lf
+tests/fixtures/token-baseline.txt text eol=lf
+
+# Shell scripts must be LF so they execute on Linux CI regardless of a
+# contributor's core.autocrlf setting (a CRLF shebang/line breaks `bash`).
+*.sh text eol=lf

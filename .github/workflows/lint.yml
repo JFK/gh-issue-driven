@@ -63,3 +63,9 @@ jobs:
 
       - name: Verify exit_reason and hitl_decision enums stay in sync across config.md / ship.md / review.md
         run: bash tests/enum-sync-check.sh
+
+      - name: Self-test the command-file token-baseline census tool
+        run: bash tests/token-baseline-test.sh
+
+      - name: Command-file token-baseline census (informational — prints table + drift)
+        run: bash tests/token-baseline.sh --check
