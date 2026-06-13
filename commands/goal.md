@@ -177,9 +177,14 @@ Reached on a `red` gate1/gate2 verdict under `red-only` — the sub-command pers
 
 Print the reviewer's findings, then `AskUserQuestion`:
 - **Question**: `Issue #<num>: <phase> returned red. How to proceed?`
-- **"Force-continue this issue"** → **re-invoke the delegated command that returned red, this time with `force`**, so the persisted-but-not-executed work actually happens — do **not** merely "treat as yellow", because under persist-and-return a red gate1 left **no branch** and a red gate2 left **no PR**, so there is nothing to continue *into* yet. Phase-aware:
-  - `phase="gate1"` → re-invoke `/gh-issue-driven:start <issue> --autonomous=<AUTONOMY> force` (red + `force` → `/start` proceeds past gate1 and **creates the branch**), then continue to step 5b (implement) for this issue.
-  - `phase="gate2"` → re-invoke `/gh-issue-driven:ship --autonomous=<AUTONOMY> force` (red + `force` → `/ship` proceeds past gate2 and **creates the PR + runs the delegated `/gh-issue-driven:review` loop**), then continue to step 5e (checkpoint) for this issue. (`force` still does not override a `gate2.binary_gate` `fail` — that remains a non-verdict abort per step 6.)
+- **"Force-continue this issue"** → **re-invoke the delegated command that returned red, this time with `force`** (do **not** merely "treat as yellow" — under persist-and-return a red gate1 left **no branch** and a red gate2 left **no PR**, so there is nothing to continue *into* yet):
+
+  | `phase` | Re-invoke (with `force`) | Effect | Then continue to |
+  |---|---|---|---|
+  | `gate1` | `/gh-issue-driven:start <issue> --autonomous=<AUTONOMY> force` | proceeds past gate1, **creates the branch** | step 5b (implement) |
+  | `gate2` | `/gh-issue-driven:ship --autonomous=<AUTONOMY> force` | proceeds past gate2, **creates the PR + runs the delegated `/gh-issue-driven:review` loop** | step 5e (checkpoint) |
+
+  (`force` still does not override a `gate2.binary_gate` `fail` — that remains a non-verdict abort per step 6.)
 - **"Skip to next issue"** → mark `status="skipped"`, record the red reason in `note`, move on.
 - **"Abort the goal run"** → write state, print recap so far, exit cleanly (resumable later).
 
