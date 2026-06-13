@@ -646,8 +646,6 @@ Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–
 
 When `lang != "en"`, localize only the **rendered operator-facing** text: produce the Considerations block, the question text, and all option labels in the language specified by `lang`. If showing advice bullets from `GATE1_KEY_SUGGESTIONS`, translate them for display at render time, but do **not** overwrite or re-store `GATE1_KEY_SUGGESTIONS` in that language.
 
-When `lang != "en"`, produce the Considerations block, the question text, and all option labels in the language specified by `lang`.
-
 Invoke `AskUserQuestion`:
 
 - **Question**: `Gate1 is green. Continue with branch creation?`
