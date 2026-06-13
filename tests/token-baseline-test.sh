@@ -56,4 +56,12 @@ H2=$(sha1sum "$SNAPSHOT" | cut -d' ' -f1)
 bash "$TOOL" --check | grep -q 'OK: matches snapshot' \
   || fail "--check should report 'OK: matches snapshot' immediately after --update"
 
+# Drift case — the contract the tool exists to surface (AC #3): when the snapshot
+# drifts, --check must STILL exit 0 (informational, never hard-fails) AND warn.
+printf 'drift-sentinel\t1\t1\t0\n' >> "$SNAPSHOT"
+DRIFT_OUT=$(bash "$TOOL" --check 2>&1) || fail "--check must exit 0 even on snapshot drift (AC #3)"
+printf '%s\n' "$DRIFT_OUT" | grep -q 'WARN: size drift' \
+  || fail "--check should warn on drift (WARN goes to stderr)"
+bash "$TOOL" --update >/dev/null   # restore the snapshot to the real census
+
 echo "PASS: token-baseline.sh ($NFILES command files measured)"
