@@ -34,7 +34,7 @@ graph LR
 
 1. **`/gh-issue-driven:start <issue...>`** — issue を取得、Kagura Memory から関連する過去ナレッジを recall、**gate 1**(設計レビュー、`/claude-c-suite:ask` → 必要なら `/ceo` にエスカレーション)を実行、型付きフィーチャーブランチを作成し、実装フェーズへハンドオフ。複数 ID を渡すとバッチブランチを作成。
 2. _(あなたがコードを書き、`/code-review` で作業ツリーの diff をレビュー — `/ship` で PR を作る前の事前レビュー)_
-3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)を回し、PR を作成。**事後レビューは opt-in**: `review.provider` のデフォルトは `none` なので、`/ship` は PR を作って **停止** します（プロバイダ未設定の場合）。プロバイダ(Copilot / `/code-review` / both)を設定すると、`/ship` はレビューループを **`/gh-issue-driven:review`**（その正規の置き場所）へ **委譲** します。あるいは `/goal` がレビューを代行します。プロバイダ設定時はレビューループ開始直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
+3. **`/gh-issue-driven:ship`** — **gate 2**(デフォルトは `cso` + `qa-lead` + `cto` advisor 並列実行。`gate2.binary_gate` で optional なバイナリゲート追加可能)を回し、PR を作成。**事後レビューは opt-in**: `review.provider` のデフォルトは `none` なので、`/ship` は PR を作って **停止** します（プロバイダ未設定の場合）。プロバイダ(Copilot / `/code-review` / both)を設定すると、`/ship` はレビューループを **`/gh-issue-driven:review`**（その正規の置き場所）へ **委譲** します。あるいは `/objective` がレビューを代行します。プロバイダ設定時はレビューループ開始直前で **HITL 確認ゲート** が立ち止まり、このPRでループを起動するかを聞きます。
 4. **`/gh-issue-driven:tag <version>`** — リリース儀式: milestone の closed issues をラベルごとにグルーピングしてリリースノート生成、`plugin.json` + `marketplace.json` の version bump、`CHANGELOG.md` 更新、コミット、annotated tag、`--follow-tags` で push、GitHub Release 作成。`dry-run` ですべてを事前プレビュー可能(ファイル・git・GitHub を一切触らない)。
 
 ワークフロー全体は `kagura-memory` の `session-start` / `session-summary` で挟まれ、初回実行時は **context 自動検出**で設定不要。issue ごとの学びが永続化されます。
@@ -88,12 +88,12 @@ graph LR
 
 | コマンド | フェーズ | 動作 |
 |---|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/goal` が使用） |
-| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、session 保存。事後レビューは opt-in (`review.provider`、デフォルト `none`)、設定時は `/ship` がレビューループを `/gh-issue-driven:review` へ **委譲**。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + レビュー起動 HITL を抑制。主に `/goal` が使用） |
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/objective` が使用） |
+| `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、session 保存。事後レビューは opt-in (`review.provider`、デフォルト `none`)、設定時は `/ship` がレビューループを `/gh-issue-driven:review` へ **委譲**。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + レビュー起動 HITL を抑制。主に `/objective` が使用） |
 | `/gh-issue-driven:review [flags]` | 2 | **事後レビューループの正規の置き場所** — open 済み PR に対してレビューを実行(または再実行) (Copilot / `/code-review` / both、`review.provider` に従う)。re-entrant 設計。フラグ: `dry-run`, `force`, `--autonomous[=<level>]` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
-| `/gh-issue-driven:goal <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、既定は Haiku ティア）→ `ship`（gate2 + PR + session-summary; PR後レビューは opt-in）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + レビュー起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: 事後レビューは `review.provider`（デフォルト `none`）または毎回指定の `no-copilot` フラグで opt-in、修正適用モデルは `review.model`（デフォルト `auto`）で right-size、inner-review のモデルは `goal.inner_review.model`（デフォルト `auto`）または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
+| `/gh-issue-driven:objective <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、既定は Haiku ティア）→ `ship`（gate2 + PR + session-summary; PR後レビューは opt-in）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + レビュー起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: 事後レビューは `review.provider`（デフォルト `none`）または毎回指定の `no-copilot` フラグで opt-in、修正適用モデルは `review.model`（デフォルト `auto`）で right-size、inner-review のモデルは `goal.inner_review.model`（デフォルト `auto`）または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |
@@ -114,7 +114,7 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 ブランチ作成後、`/start` は **suggested workflow** を表示し、ワンタップの continue を提示します。実装は **直交する2層** で構成されます：
 
 - **オーケストレーション** — 変更の規模/リスクで選ぶ: 直接編集（trivial / docs / rename / config）・`/feature-dev:feature-dev`（moderate）・`superpowers:writing-plans → subagent-driven-development`（large / plan-driven）。**overkill を避け**、選ぶのは最大1つ。
-- **テストファースト規律** — `superpowers:test-driven-development` は、テスト面がある変更（実ロジックを含むもの）では **デフォルト** で適用される規律。選んだオーケストレーションの **内側** で red→green→refactor を回すものであり、独立したルートでは **ない**。opt-out は純粋な docs / formatting / rename / config のみ。スキル未インストールでもデフォルトは維持（手動で test-first）。これは `/goal` step 5b と対称 — TDD は **両コマンド** でデフォルトの実装規律。ワンタップの *continue* が自動起動するのはオーケストレーション（`/feature-dev` か plan 起案）のみで、テストファースト規律はその内側で適用されます。
+- **テストファースト規律** — `superpowers:test-driven-development` は、テスト面がある変更（実ロジックを含むもの）では **デフォルト** で適用される規律。選んだオーケストレーションの **内側** で red→green→refactor を回すものであり、独立したルートでは **ない**。opt-out は純粋な docs / formatting / rename / config のみ。スキル未インストールでもデフォルトは維持（手動で test-first）。これは `/objective` step 5b と対称 — TDD は **両コマンド** でデフォルトの実装規律。ワンタップの *continue* が自動起動するのはオーケストレーション（`/feature-dev` か plan 起案）のみで、テストファースト規律はその内側で適用されます。
 
 ### Phase 2 — `/gh-issue-driven:ship`(Gate 2: PR 作成直前のレビューバッテリー + PR 作成)
 
