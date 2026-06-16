@@ -139,7 +139,7 @@ if [ -n "${AUTONOMOUS_LEVEL:-}" ]; then
 fi
 ```
 
-**Backward-compatibility note.** The flag is forward-additive: a `/start` build that predates this change classifies `--autonomous` as an **Unknown** flag (step 1.1) and rejects it. Because `/start` and `/objective` ship together in the same plugin version, a `/objective` that passes `--autonomous` is always paired with a `/start` that understands it — there is no mixed-version path in practice. Direct `/start` users who never pass the flag get `AUTONOMOUS_LEVEL=null` → `AUTONOMOUS=false` → **no behavior change** (every HITL gate fires exactly as before).
+**Backward-compatibility note.** The flag is forward-additive: a `/start` build that predates this change classifies `--autonomous` as an **Unknown** flag (step 1.1) and rejects it. Because `/start` and `/objective` ship together in the same plugin version, an `/objective` that passes `--autonomous` is always paired with a `/start` that understands it — there is no mixed-version path in practice. Direct `/start` users who never pass the flag get `AUTONOMOUS_LEVEL=null` → `AUTONOMOUS=false` → **no behavior change** (every HITL gate fires exactly as before).
 
 Step 6 (branch name computation) produces a slug from these already-validated components via a deterministic algorithm (lowercase → replace non-alnum with `-` → collapse → truncate), so no additional branch-name validation is needed in `start.md` — the slug is safe by construction. `ship.md` validates its own branch name independently (see `ship.md` step 1a).
 

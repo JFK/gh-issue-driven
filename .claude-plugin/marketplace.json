@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "gh-issue-driven",
-  "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship, ceremony-automated tag, and a /objective orchestrator that drives a whole milestone to PRs — with HITL confirmation at every phase boundary or unattended autonomous runs, multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
+  "description": "Full-lifecycle GitHub-issue-driven dev workflow — propose issues from session context, design-gated start, advisor + Copilot-gated ship, ceremony-automated tag, and an /objective orchestrator that drives a whole milestone to PRs — with HITL confirmation at every phase boundary or unattended autonomous runs, multi-issue batch support, pluggable post-PR reviewer, and per-repo Kagura Memory auto-detect.",
   "owner": {
     "name": "Fumikazu Kiyota",
     "email": "fumikazu.kiyota@gmail.com"
