@@ -1,8 +1,8 @@
 # gh-issue-driven
 
-[![GitHub release](https://img.shields.io/github/v/release/JFK/gh-issue-driven)](https://github.com/JFK/gh-issue-driven/releases)
+[![GitHub release](https://img.shields.io/badge/release-v0.16.0-blue)](https://github.com/JFK/gh-issue-driven/releases)
 [![CI](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml/badge.svg)](https://github.com/JFK/gh-issue-driven/actions/workflows/lint.yml)
-[![License: MIT](https://img.shields.io/github/license/JFK/gh-issue-driven)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 [English](README.md) | **日本語**
 
