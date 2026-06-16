@@ -31,13 +31,13 @@ This command's trust boundary is **unique** among gh-issue-driven commands:
 - **Allowed**: pushing to the default branch (main/master) — this is the ONE place the plugin writes to main, justified by the release ceremony being an explicit operator invocation
 - **Allowed**: creating a git tag
 - **Allowed**: creating a GitHub Release
-- **Allowed**: modifying `plugin.json`, `marketplace.json`, `CHANGELOG.md`
+- **Allowed**: modifying `plugin.json`, `marketplace.json`, `CHANGELOG.md`, and the static release-badge line in `README.md` / `README.ja.md`
 
 Forbidden actions during this command:
 - `git push --force` or `git push --force-with-lease`
 - `git reset --hard`, branch deletions, or anything that destroys local work
 - Modifying `~/.claude/settings.json` or any file outside the repo and `~/.claude/cache/gh-issue-driven/`
-- Modifying any file other than `plugin.json`, `marketplace.json`, and `CHANGELOG.md` (the release ceremony touches exactly these three files)
+- Modifying any file other than `plugin.json`, `marketplace.json`, `CHANGELOG.md`, and the release-badge line in `README.md` / `README.ja.md` (the release ceremony touches exactly these files — and only the pinned badge version in the READMEs, nothing else)
 
 If you encounter unexpected state (uncommitted changes, not on default branch, divergent history), **stop and report**. Do not "clean up" automatically.
 
@@ -254,6 +254,19 @@ test "$NEW_MV" = "$VERSION" || { echo "marketplace.json version bump failed"; ex
 test "$NEW_PV" = "$NEW_MV" || { echo "version mismatch after bump"; exit 12; }
 ```
 
+### 7a. Bump the README release badge
+
+**Skip this step entirely if `DRY_RUN` is true.**
+
+`README.md` and `README.ja.md` carry a **static** release badge pinned to the version: `https://img.shields.io/badge/release-v<version>-blue`. (It is static, not shields.io's `github/v/release` API badge, because that endpoint intermittently fails with "Unable to select next GitHub token from pool" — a shields.io token-pool issue.) Bump it so it stays current.
+
+Using the Edit tool, in **both** `README.md` and `README.ja.md`, replace the pinned version:
+
+- old: `img.shields.io/badge/release-v<CURRENT_PV>-blue`
+- new: `img.shields.io/badge/release-v<VERSION>-blue`
+
+This is **best-effort**: if a README does not contain the badge pattern (no match), skip it silently — never abort the release over the badge. The changed READMEs are staged with the release commit in step 9.
+
 ### 8. Update CHANGELOG.md
 
 **Skip this step entirely if `DRY_RUN` is true.**
@@ -279,11 +292,13 @@ Use today's date (UTC) for `<YYYY-MM-DD>`.
 
 **Skip this step entirely if `DRY_RUN` is true.**
 
-Stage only the three release files:
+Stage the release files (the two manifests, the CHANGELOG, and the READMEs whose release badge was bumped in step 7a):
 
 ```bash
-git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
+git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md README.md README.ja.md
 ```
+
+`git add` on an unchanged README is a no-op, so this is safe even if step 7a found no badge to bump.
 
 Create the commit:
 
@@ -378,6 +393,8 @@ Release <RELEASE_URL>
 Manifests
   plugin.json:        <old> → <VERSION>
   marketplace.json:   <old> → <VERSION>
+
+README badge   release-v<old> → release-v<VERSION>  (README.md, README.ja.md)
 
 CHANGELOG.md  <created | updated>
 
