@@ -49,5 +49,14 @@ check "$OBJ" "scope → tier line"        'docs/trivial → haiku, normal → so
 check "$OBJ" "effort fallback"          '`low` docs/small, `medium` normal, `high` risky or wide'
 check "$OBJ" "review-model alias list"  'haiku | sonnet | opus | fable | <model id>'
 
+# --- start.md step 12b: the issue-side mapping onto the same rows -------------
+STA=commands/start.md
+check "$STA" "12b heading"              '### 12b. Recommended model/effort profile (advisory)'
+check "$STA" "hardest → fable/high"     '`hardest` → `fable`/`high`'
+check "$STA" "risky → opus/high"        '`risky / wide` → `opus`/`high`'
+check "$STA" "normal → opus/medium"     '`normal` → `opus`/`medium`'
+check "$STA" "docs → sonnet/low"        '`docs-only / trivial` → `sonnet`/`low`'
+check "$STA" "auto tiers, never fable"  '(`opus` / `opus` / `sonnet` / `haiku`; never `fable`)'
+
 echo "$pass in sync / $fail drifted / $((pass + fail)) total"
 [ "$fail" -eq 0 ]
