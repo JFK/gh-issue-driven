@@ -11,16 +11,9 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 16, AskUserQuestion 文言, doctor diagnostics referenced in error paths, prose narration Claude generates between steps, and the gate1 prompt sent to reviewer skills. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — narration between steps, doctor diagnostics echoed on error paths, the gate1 prompt sent to reviewer skills, the step-16 recap, AskUserQuestion text — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: PR title/body, commit messages, branch names; state-file JSON values and the `phase` / `exit_reason` / `detection_method` enums; captured command output; and the `## Verdict:` line with its `green|yellow|red|decline` tokens (the gate1 set — `pass|fail` are gate2-only, in `ship.md`). The three-layer policy behind this is defined once, under `lang` in `/gh-issue-driven:config`.
 
-The following MUST stay English regardless of `lang`:
-
-- PR title/body, commit messages, branch names (durable artifacts — Layer A)
-- `## Verdict:` line and tokens `green|yellow|red|decline` — these are the only tokens gate1 reviewers emit (`pass|fail` are gate2-only and live in `ship.md`'s parallel section) (parser contract — Layer C)
-- `exit_reason` enum values, `detection_method` enum values, `phase` enum values, any state file JSON values (parser contract — Layer C)
-- Bash command output captured into variables (`gh issue view --json` results, `gh repo view --json` results, etc.) — these are read as machine-shaped data, never localized
-
-When `lang != "en"` AND step 9 invokes a reviewer skill, the gate1 prompt block built in step 8 must include a language hint as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction. Include the raw `lang` value for determinism, with a best-effort human-readable name where recognizable (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
+When `lang != "en"`, the gate1 prompt (step 8) ends its `## Your task` section — before the `## Verdict:` instruction — with the line below, using the raw `lang` value plus a best-effort language name (`ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
 ```
 Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.
@@ -41,6 +34,8 @@ If you encounter unexpected state (uncommitted changes, missing remote, divergen
 ## Steps
 
 You are starting work on a GitHub issue. Read each step carefully — the order matters and several steps depend on values captured earlier.
+
+**Execution model.** Every `Invoke … via the Skill tool` in this file runs **in-line**: the skill body is injected into this conversation and Claude performs that role here, in the same turn — the Skill call itself spawns no process (a skill may still dispatch subagents of its own, as `/superpowers:subagent-driven-development` does). The invoking step then reads the skill's output straight from the conversation.
 
 ### 1. Parse arguments
 
@@ -89,10 +84,9 @@ Set booleans from flag tokens:
 
 Flag interaction rules (validated here, before any downstream step reads them):
 
-- `--parallel` requires `--with-plan`. If `PARALLEL=true` and `WITH_PLAN=false`, abort with `error: --parallel requires --with-plan (subagent-driven-development consumes a plan as its input)`. Auto-enabling `--with-plan` was considered and rejected — operators who set `--parallel` without `--with-plan` likely misunderstand the workflow, and silently enabling another flag would mask that.
-- `auto-size` is per-invocation and overrides `gate1.size_heuristic.enabled` to `true` for this run only. The config key is the persistent equivalent; the flag is the one-off opt-in.
-- `auto-size` and `dry-run` compose normally — when both are set, the size heuristic runs and may short-circuit gate1, but no branch is created.
-- `--autonomous` and `force` are **orthogonal** and compose: `--autonomous` suppresses the green/yellow HITL *prompts* (and the step-18 next-action prompt) so the run is unattended; `force` decides whether a **red** verdict *proceeds*. `/objective` pairs them deliberately — it passes `--autonomous=red-only` alone (red stops: persist-and-return, see step 12), and `--autonomous=unattended force` together (red auto-proceeds). `--autonomous` alone never implies `force`; a red verdict under `--autonomous` without `force` does **not** proceed.
+- `--parallel` requires `--with-plan`: if `PARALLEL=true` and `WITH_PLAN=false`, abort with `error: --parallel requires --with-plan (subagent-driven-development consumes a plan as its input)` — never auto-enable the other flag.
+- `auto-size` overrides `gate1.size_heuristic.enabled` to `true` for this run only; with `dry-run` the heuristic still runs but no branch is created.
+- `--autonomous` and `force` are orthogonal: `--autonomous` suppresses the green/yellow HITL prompts and the step-18 prompt; `force` alone decides whether a **red** verdict proceeds. `/objective` passes `--autonomous=red-only` alone (red persists and returns, step 12) or `--autonomous=unattended force` (red proceeds). `--autonomous` never implies `force`.
 
 #### 1a. Validate parsed arguments against allow-list
 
@@ -139,9 +133,7 @@ if [ -n "${AUTONOMOUS_LEVEL:-}" ]; then
 fi
 ```
 
-**Backward-compatibility note.** The flag is forward-additive: a `/start` build that predates this change classifies `--autonomous` as an **Unknown** flag (step 1.1) and rejects it. Because `/start` and `/objective` ship together in the same plugin version, an `/objective` that passes `--autonomous` is always paired with a `/start` that understands it — there is no mixed-version path in practice. Direct `/start` users who never pass the flag get `AUTONOMOUS_LEVEL=null` → `AUTONOMOUS=false` → **no behavior change** (every HITL gate fires exactly as before).
-
-Step 6 (branch name computation) produces a slug from these already-validated components via a deterministic algorithm (lowercase → replace non-alnum with `-` → collapse → truncate), so no additional branch-name validation is needed in `start.md` — the slug is safe by construction. `ship.md` validates its own branch name independently (see `ship.md` step 1a).
+Step 6 derives the slug deterministically from these validated components (lowercase → non-alnum to `-` → collapse → truncate), so no further branch-name validation is needed here; `ship.md` validates its own branch name (its step 1a).
 
 ### 2. Load configuration
 
@@ -173,11 +165,11 @@ Top-level branches (in priority order):
 
 ##### 2a.i — Dict form: look up the repo's entry
 
-1. Let `RESOLVED_VALUE = context_id[REPO_FULL_NAME]` (exact string match on the key, case-sensitive — GitHub `owner/repo` slugs are canonical).
-2. If `RESOLVED_VALUE` is missing, try `RESOLVED_VALUE = context_id["*"]` (the wildcard fallback).
-3. If neither key exists, this is an **auto-detect trigger** (no entry for this repo yet). Proceed to step 2b. Step 2b will persist the chosen UUID back to `context_id[REPO_FULL_NAME]` so subsequent runs in the same repo skip the prompt.
-4. If the value is present but `null`/empty, treat as auto-detect trigger for this repo (same as missing).
-5. If the value is a non-empty string, hand it off to **2a.ii** as `RESOLVED_VALUE` for UUID/name resolution. Log which key was hit: `memory.context_id: matched "<key>" → <value first 8 chars>…` where `<key>` is either the repo slug or `"*"`.
+1. Let `RESOLVED_VALUE = context_id[REPO_FULL_NAME]` (exact, case-sensitive key match).
+2. If missing, try `RESOLVED_VALUE = context_id["*"]` (wildcard fallback).
+3. If neither key exists: **auto-detect trigger** — proceed to step 2b, which persists the chosen UUID under `context_id[REPO_FULL_NAME]`.
+4. A present but `null`/empty value is treated like a missing key.
+5. A non-empty string goes to **2a.ii** as `RESOLVED_VALUE`. Log which key was hit: `memory.context_id: matched "<key>" → <value first 8 chars>…` (`<key>` is the repo slug or `"*"`).
 
 ##### 2a.ii — Resolve a single value (UUID or name)
 
@@ -188,26 +180,21 @@ Top-level branches (in priority order):
 
 Resolution procedure (only when `NO_MEMORY` is not set AND `RESOLVED_VALUE` is a non-empty name):
 
-> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Iterate the returned `contexts` array. Find every context where `.name.lower() == RESOLVED_VALUE.lower()` (case-insensitive exact match — context names are user-chosen identifiers and we want to forgive a user typing `My-Project` when their context is `my-project`).
+> **Invoke the `mcp__kagura-memory__list_contexts` tool.** Find every context whose `.name.lower() == RESOLVED_VALUE.lower()` (case-insensitive exact match).
 
 Edge cases:
 - **Name not found** (zero matches): if the name is `"gh-issue-driven-dev"` (case-insensitive — the pre-v0.2.0 placeholder default) and this was the top-level scalar branch (2a), treat as a **backward-compat auto-detect trigger** and proceed to step 2b. For any other name, log `memory.context_id "<name>" not found in available contexts; recall will be skipped`, set to `null`, do NOT abort.
-- **Multiple matches** (≥2 contexts with the same name, case-insensitive): log `memory.context_id "<name>" is ambiguous (matched N contexts); recall will be skipped to avoid querying the wrong context — set context_id to a UUID directly to disambiguate`, set to `null`, do NOT abort. **Do not silently take the first match** — ambiguity is a configuration smell that the user should resolve, and "wrong context" is a worse failure mode than "no recall."
+- **Multiple matches** (≥2 contexts with the same name, case-insensitive): log `memory.context_id "<name>" is ambiguous (matched N contexts); recall will be skipped to avoid querying the wrong context — set context_id to a UUID directly to disambiguate`, set to `null`, do NOT abort. Never take the first match silently.
 - **`list_contexts` errors / kagura-memory not installed**: log `kagura-memory not installed or list_contexts failed; recall will be skipped`, set to `null`.
 - **Exactly one match**: take its `.id` as the resolved UUID, store in the in-session config. Skip step 2b.
 
-Dict-form name resolution failures (name not found, ambiguous, etc.) set the in-session value to `null` and skip recall **without** triggering auto-detect for the repo — the user explicitly configured a name, so an auto-detect on top of that would silently override their choice. Only a fully missing key in the dict (2a.i step 3) triggers auto-detect.
+Dict-form name failures (not found, ambiguous) set the value to `null` and skip recall **without** triggering auto-detect — the user configured that name on purpose. Only a missing key (2a.i step 3) triggers auto-detect.
 
 #### 2b. Auto-detect `memory.context_id` (interactive, first-run per repo)
 
-This step runs when step 2a determines the context_id needs interactive selection for this repo — one of:
-- `context_id` is `null`/missing (fresh install), OR
-- `context_id` is a dict but has no key matching `REPO_FULL_NAME` and no `"*"` wildcard (new repo, nothing else to fall back on), OR
-- `context_id` is the legacy scalar placeholder `"gh-issue-driven-dev"` and name resolution failed (upgrade from pre-v0.2.0).
+Runs when step 2a found nothing usable for this repo: `context_id` is `null`/missing, the dict has neither a matching key nor `"*"`, or the legacy scalar placeholder `"gh-issue-driven-dev"` failed to resolve. Unreachable under `NO_MEMORY`.
 
-This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top skips all resolution).
-
-**Goal**: prompt the user to pick (or create) a Kagura Memory context, persist the chosen UUID to the config file **under this repo's key** so the prompt never fires again for this repo, and set the in-session value for step 7.
+**Goal**: let the user pick or create a Kagura Memory context, persist its UUID under this repo's key so the prompt never fires again here, and set the in-session value for step 7.
 
 1. **Call `mcp__kagura-memory__list_contexts`** (reuse the result from step 2a if already called during name resolution; otherwise call it now). If the call fails or kagura-memory is not installed, log `kagura-memory not available; recall will be skipped`, set in-session value to `null`, and return. Do NOT prompt.
 
@@ -219,19 +206,12 @@ This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top ski
    - If `list_contexts` returned **zero contexts**: ask `"No Kagura Memory contexts found. Create one for <REPO_FULL_NAME>?"` with options `"Yes, create '<REPO_NAME>'"` and `"Skip recall for now"`.
    - If `list_contexts` returned **one or more contexts**: ask `"Select a Kagura Memory context for <REPO_FULL_NAME>:"` with the formatted context list plus the two fixed options.
 
-   The `REPO_FULL_NAME` mention in the question text matters — in a multi-repo setup the operator needs to see which repo this binding is for, since the persisted entry only applies to that repo.
-
 4. **Handle the user's choice:**
    - **Existing context selected**: use its `.id` as the resolved UUID.
    - **"Create new context"**: invoke `mcp__kagura-memory__create_context` with `name=<REPO_NAME>` (the repo name portion of `REPO_FULL_NAME`, e.g. `gh-issue-driven`). Use the returned `.id` as the resolved UUID. If creation fails, log a warning, set to `null`, return.
    - **"Skip recall for now"**: set in-session value to `null`. Do NOT write to config (user explicitly deferred). Return.
 
-5. **Persist the chosen UUID to the config file, scoped to this repo.** This is the one exception to the "never write back to config" rule — auto-detect is a one-time bootstrapping action, not a per-invocation side effect. The persist logic branches on the existing `context_id` shape to preserve prior entries.
-
-   The jq transform is the canonical migration path. It handles three cases:
-   - **Missing or null** → create `{<REPO_FULL_NAME>: <chosen>}`.
-   - **Existing object (dict)** → set `[<REPO_FULL_NAME>] = <chosen>`, preserving every other key.
-   - **Existing scalar string (legacy)** → **auto-upgrade**: convert to `{<REPO_FULL_NAME>: <chosen>, "*": <old_scalar>}`. The old scalar is preserved as the `"*"` wildcard so existing bindings for other repos still resolve until the user explicitly migrates or removes `"*"`.
+5. **Persist the chosen UUID to the config file, scoped to this repo.** This is the one exception to the "never write back to config" rule — a one-time bootstrap. The jq transform creates the dict, merges into an existing dict (keeping every other key), or upgrades a legacy scalar to `{<REPO_FULL_NAME>: <chosen>, "*": <old_scalar>}` so other repos keep resolving through the wildcard.
 
    ```bash
    CONFIG_FILE="$HOME/.claude/gh-issue-driven-config.json"
@@ -278,11 +258,10 @@ This step is unreachable when `NO_MEMORY` is set (step 2a's guard at the top ski
 6. **Set the in-session value** to the chosen UUID so step 7 can use it immediately.
 
 Operational notes:
-- **After auto-detect persists a UUID for this repo**, subsequent `/start` invocations in the same repo hit step 2a.i's exact-key match directly — no prompt, no `list_contexts` call. The prompt is truly one-time per repo.
-- **Steady-state name resolution** (step 2a.ii, non-null non-UUID values) still does **not** write back to config. The portability rationale remains: a user who explicitly sets a context name in their config file wants cross-machine portability. Only the auto-detect bootstrapping path writes.
-- **Honoring `memory.skip_on_failure`**: the auto-detect failure paths (kagura not installed, creation failed) always set `null` and continue, regardless of `memory.skip_on_failure`. That config controls step 7's runtime recall errors, not bootstrapping failures.
-- **`null` is the canonical "skip recall" sentinel** — it is the same value the failure paths set, and step 7 reads it the same way it reads `NO_MEMORY`.
-- **Scalar auto-upgrade is one-way**: once a scalar is upgraded to a dict with `"*"` wildcard, subsequent auto-detects operate on the dict form. The user can remove `"*"` manually if they no longer want a catch-all fallback.
+- Once persisted, later `/start` runs in this repo hit step 2a.i's exact key — no prompt, no `list_contexts` call.
+- Steady-state name resolution (2a.ii) never writes back to config: a configured name is meant to be portable across machines.
+- The auto-detect failure paths always set `null` and continue, regardless of `memory.skip_on_failure` (that key governs step 7's runtime recall errors only). `null` is the canonical "skip recall" sentinel, read by step 7 like `NO_MEMORY`.
+- The scalar → dict upgrade is one-way; remove `"*"` by hand to drop the catch-all.
 
 Built-in defaults (also see `/gh-issue-driven:config show`):
 
@@ -416,8 +395,6 @@ Capture results as a list of `{summary, score}` pairs.
 - If `memory.skip_on_failure` is `true` (default): log a single warning `memory recall failed; continuing without recall results — <error summary>` and proceed to step 8 with an empty result list. This is the "fail-safe, recall is best-effort" path.
 - If `memory.skip_on_failure` is `false`: **abort the command** with the recall error printed in full. Save no state. The user opted into "if memory is broken, stop" by setting this flag, so honor it.
 
-The skip path at the top of this step already covered the "context_id couldn't be resolved" case (steps 2a/2b set `null` and step 7 skips entirely without calling recall), so by the time the recall call runs, `context_id` is a valid UUID. Any runtime error here is a true network/server issue, not a configuration problem — and the user's `skip_on_failure` choice is the right signal for how to handle it.
-
 ### 7a. Issue-size heuristic (optional gate1 short-circuit)
 
 This sub-step runs only when **either** `AUTO_SIZE` (CLI flag) is true OR `gate1.size_heuristic.enabled` in the effective config is `true`. Otherwise skip entirely — set `SIZE_HEURISTIC_SKIPPED=false` and proceed to step 8 normally.
@@ -431,8 +408,6 @@ For single-issue mode, read config:
 Both signals are checked. The issue is **small** when **either**:
 - Any label name (case-insensitive) is in `SMALL_LABELS`, OR
 - `len(PRIMARY_ISSUE.body)` is less than `SMALL_BODY_MAX`
-
-The OR (not AND) is intentional: a labeled "good first issue" with a longer body is still small; a short body without a small label is still small. Both signals capture the same "implementer can act without deep design input" intuition through different proxies.
 
 When the issue is **small**:
 
@@ -454,7 +429,7 @@ Then **skip steps 8 through 11 entirely** and proceed to step 11a's HITL flow. T
 
 When the issue is **not small**: set `SIZE_HEURISTIC_SKIPPED=false` and proceed to step 8.
 
-This sub-step is the only entry point for `GATE1_REVIEWER="size-heuristic"`. The value is written to the state file via the normal `gate1` block in step 14; no schema change is required.
+This sub-step is the only source of `GATE1_REVIEWER="size-heuristic"`; it reaches the state file through the normal `gate1` block in step 14.
 
 ### 8. Build the gate1 prompt block
 
@@ -573,16 +548,7 @@ Capture the full skill output as `ASK_OUTPUT`.
 
 ### 10. Detect decline and escalate if needed
 
-Scan `ASK_OUTPUT` for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b`
-(case-insensitive). If one or more match, take the **LAST** occurrence (last-wins) and lowercase
-the captured token. This uses the same last-wins structured-line approach as step 11, but with an
-expanded token set here to include `decline`; it is not a separate channel.
-
-Free-form mentions of `decline`, `needs synthesis`, `escalate`, etc. inside the analysis body
-are **not** decline signals — they are the reviewer's reasoning. Only the structured verdict
-line counts. The escalation check operates on the LAST `## Verdict:` line's token across the
-**full token set**, so a reviewer who writes "I first thought `## Verdict: decline` but on
-reflection `## Verdict: green`" correctly resolves to green and does NOT escalate.
+Scan `ASK_OUTPUT` for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red|decline)\b` (case-insensitive); the **LAST** match wins and its token is lowercased. Free-form words in the analysis (`decline`, `needs synthesis`, `escalate`, …) are reasoning, not signals — only the structured line counts, so "I first thought `## Verdict: decline` but on reflection `## Verdict: green`" resolves to green and does NOT escalate.
 
 - **If the last token is `decline`**: escalate.
 
@@ -593,14 +559,11 @@ reflection `## Verdict: green`" correctly resolves to green and does NOT escalat
   > Note: as the escalation target, end your response with `## Verdict: green|yellow|red` only — `decline` is not valid for /ceo (you ARE the escalation target, there is no further escalation).
   > ```
   >
-  > Wait for the full markdown response. The `/ceo` response is then parsed by step 11, which only recognizes `green|yellow|red`; if `/ceo` ignores the constraint and emits `decline`, the structured path will not match and the heuristic fallback will run with a warn log — that signal is what we want to track.
+  > Wait for the full markdown response. Step 11 parses it and only recognizes `green|yellow|red`; a `/ceo` that still emits `decline` falls to the heuristic fallback with its warn log — that signal is what we want to track.
 
   Use the `/ceo` output as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO="ceo"`.
 
-- **Otherwise** (the last token is `green`/`yellow`/`red`, OR no structured line was found at all):
-  use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`.
-  The verdict will be parsed in step 11 (which re-scans the same lines using the same last-wins
-  contract — duplication is intentional for v0.1.1; a future refactor will share the parser).
+- **Otherwise** (the last token is `green`/`yellow`/`red`, or no structured line was found): use `ASK_OUTPUT` as `GATE1_OUTPUT`. Set `GATE1_REVIEWER="ask"` and `GATE1_ESCALATED_TO=null`. Step 11 re-scans the same lines with the same last-wins contract.
 
 If the `/ask` skill is not installed, fall back directly to `/ceo`. If both are missing, log a loud warning `gate1 skipped: claude-c-suite not installed`, set `GATE1_VERDICT="unknown"`, and continue (do not abort).
 
@@ -608,28 +571,20 @@ If the `/ask` skill is not installed, fall back directly to `/ceo`. If both are 
 
 Parse `GATE1_VERDICT` from `GATE1_OUTPUT` using this two-step contract:
 
-1. **Structured verdict line (preferred, canonical)**: scan for **all** lines matching the regex
-   `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive). If one or more match, take the
-   **LAST** occurrence (last-wins), lowercase the captured token, and use it. Trailing punctuation
-   on the line (e.g. `## Verdict: green.`) is fine — `\b<token>\b` already handles it. Token case
-   is normalized via `.lower()`, so `Green`, `green`, and `GREEN` all map to `green`.
+1. **Structured verdict line (canonical)**: scan for **all** lines matching `^\s*##\s*Verdict:\s*(green|yellow|red)\b` (case-insensitive); the **LAST** match wins, lowercased (`Green` / `GREEN` → `green`; trailing punctuation such as `## Verdict: green.` is fine).
 
-2. **Heuristic fallback** — only runs when **no structured line was found**. Emit a single warn-level
-   log line `verdict_parser=heuristic gate=gate1 reason=no_structured_line` so the soft-deprecation
-   of the heuristic can be tracked in real runs (this signal feeds the v0.4 decision to drop
-   heuristics entirely).
+2. **Heuristic fallback** — only when **no structured line was found**. Emit one warn-level log line `verdict_parser=heuristic gate=gate1 reason=no_structured_line` so the soft-deprecated heuristic can be tracked in real runs.
    - **red** if any of: `BLOCKER`, `must fix before`, `red flag`, `do not proceed`, three or more `Critical:` lines.
    - **yellow** if any of: `WARN`, `consider`, `recommend`, one or two `Warning:` markers, no red signals.
    - **green** otherwise.
 
-Set `GATE1_VERDICT` accordingly. Note: `decline` is handled in step 10 and never reaches step 11 —
-by the time `GATE1_OUTPUT` is set here, decline has already been escalated to `/ceo`.
+Set `GATE1_VERDICT` accordingly (`decline` never reaches this step — step 10 already escalated it).
 
 #### 11a. HITL confirmation on green verdict
 
-**Autonomous bypass**: when `AUTONOMOUS` is `true` (i.e. level `red-only` or `unattended`; `attended` leaves `AUTONOMOUS=false` and is unaffected — its prompts fire normally), still extract `GATE1_KEY_SUGGESTIONS` as described below (step 17a reuses it), then **skip the `AskUserQuestion` entirely and continue to step 12** — log one line `autonomous(<level>): gate1 green auto-continued`. The autonomy contract replaces the interactive confirm; the operator (or `/objective`) opted into unattended green/yellow progression. The rest of this sub-step does not apply under `AUTONOMOUS`.
+**Autonomous bypass**: when `AUTONOMOUS` is `true` (`red-only` or `unattended`; `attended` leaves `AUTONOMOUS=false` and prompts normally), still extract `GATE1_KEY_SUGGESTIONS` as described below (step 17a reuses it), then **skip the `AskUserQuestion` and continue to step 12** — log one line `autonomous(<level>): gate1 green auto-continued`.
 
-This sub-step otherwise runs only when `GATE1_VERDICT` is `green` AND `gate1.green_continue_requires_confirm` is `true`. Presenting the HITL immediately after the verdict is parsed — within the same step — ensures the operator sees the confirmation prompt without an intermediate step header.
+Otherwise this sub-step runs only when `GATE1_VERDICT` is `green` AND `gate1.green_continue_requires_confirm` is `true`, immediately after the verdict is parsed.
 
 Print a short `Considerations:` block showing the gate1 summary:
 
@@ -642,11 +597,9 @@ Considerations:
       • <suggestion 3>
 ```
 
-When extracting advice, use the same heuristic as step 17a: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT`. Extract up to **3** of the most concrete items. If nothing extractable, set `GATE1_KEY_SUGGESTIONS` to an empty list and omit the advice bullets (do not invent guidance).
+Extract the advice from `GATE1_OUTPUT` with step 17a's heuristic (defined there, once) — up to **3** of the most concrete items. Store them as `GATE1_KEY_SUGGESTIONS`, an ordered list of 0–3 plain-text strings in **English only** (translate if the reviewer answered in another language); step 17a reuses the stored list, and an empty list means "no suggestions" (omit the bullets — do not invent guidance).
 
-Store the extracted items as `GATE1_KEY_SUGGESTIONS` — an ordered list of 0–3 plain-text strings (no bullet prefixes, no formatting). This list is a durable internal artifact and must be stored in **English only**. If the extracted text from `GATE1_OUTPUT` is not already English, translate each item into concise English before storing. Step 17a reuses this list directly in its stored English form: an empty list means "no suggestions" (omit the checklist entirely).
-
-When `lang != "en"`, localize only the **rendered operator-facing** text: produce the Considerations block, the question text, and all option labels in the language specified by `lang`. If showing advice bullets from `GATE1_KEY_SUGGESTIONS`, translate them for display at render time, but do **not** overwrite or re-store `GATE1_KEY_SUGGESTIONS` in that language.
+When `lang != "en"`, localize only the rendered text — the Considerations block, the question, the option labels, and the displayed suggestions — never the stored `GATE1_KEY_SUGGESTIONS`.
 
 Invoke `AskUserQuestion`:
 
@@ -665,7 +618,7 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
   - **Otherwise**: print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
 - **red** →
   - **`FORCE` is true** (e.g. `/objective` under `unattended`/`force` passes `force` alongside `--autonomous`) → log a loud warning and continue to step 12a/13. The red verdict is carried into the state file by the normal step-14 write.
-  - **`AUTONOMOUS` is true AND `FORCE` is false** (reached when `--autonomous` is active without `force` — typically `red-only`; `attended` never reaches here because it leaves `AUTONOMOUS=false` and takes the interactive path below. Red must stop, but an unattended run cannot block on an interactive prompt) → **persist-and-return instead of aborting**: **unless `DRY_RUN` is true**, write a partial state file at the normal path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`) using the same atomic temp+mv procedure as step 14, with `phase=started`, `gate1.verdict=red`, the full `gate1` block (reviewer/escalated_to/summary_path/ran_at), and **no branch created** (`worktree_path=null`; the branch name is recorded for reference but `git checkout -b` is **not** run); save the gate1 markdown (step 15). **When `DRY_RUN` is true, write neither the state file nor the gate1 markdown** — this honors step 14's dry-run contract (dry-run never creates persistent state); just print the findings and return. In both cases print the reviewer's findings, then **return control cleanly (exit 0)** — do not abort. This is the behavior `/objective` step 5d depends on (in a non-dry-run): it reads `gate1.verdict=red` from the state file and runs its in-loop red HITL (force-continue / skip / abort), rather than having to catch a non-verdict abort. Log `autonomous(<level>): gate1 red — verdict persisted, returning control (no branch created)` (or `… returning control (dry-run, no state written)` under `DRY_RUN`).
+  - **`AUTONOMOUS` is true AND `FORCE` is false** (`red-only`, or `unattended` without `force`; `attended` takes the interactive path below) → **persist-and-return instead of aborting**: unless `DRY_RUN`, write a partial state file at the normal path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`, atomic temp+mv as in step 14) with `phase=started`, `gate1.verdict=red`, the full `gate1` block (reviewer/escalated_to/summary_path/ran_at), `worktree_path=null` and **no branch created** (the branch name is recorded; `git checkout -b` is not run), and save the gate1 markdown (step 15). Under `DRY_RUN` write neither file — just print the findings. In both cases print the reviewer's findings and **return control cleanly (exit 0)**. `/objective` step 5d depends on this: it reads `gate1.verdict=red` from the state file and runs its own red HITL. Log `autonomous(<level>): gate1 red — verdict persisted, returning control (no branch created)` (or `… returning control (dry-run, no state written)` under `DRY_RUN`).
   - **Otherwise** (interactive, not autonomous, not force) → abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns". No state file is written (unchanged legacy behavior).
 
 ### 12a. Generate the implementation plan (optional, `--with-plan`)
@@ -697,9 +650,7 @@ captured by the parent /start command and persisted to the start state file
 in step 14 — your output IS the durable artifact.
 ```
 
-**Execution model — this is non-obvious and easy to misread**: the Skill tool injects the `writing-plans` skill body into Claude's context. Claude (the same conversation that is executing `/start`) then produces the plan **in-line** as the writing-plans-instructed role. There is no autonomous sub-process. After the skill returns and the plan content appears in the conversation, **the parent `/start` command captures the plan content** and writes it to disk in step 14.5 (after branch creation and state file write, before the recap). This is the same in-line execution model that `/claude-c-suite:ask` and `/kagura-memory:session-start` use elsewhere in this command.
-
-The "capture" mechanism is straightforward: the writing-plans skill produces a markdown document as its final output. The parent reads that document from the conversation history and persists it verbatim. No structured-extraction step is required.
+The skill runs in-line (see the execution-model note under **Steps**): the plan appears in this conversation and the parent `/start` captures that markdown verbatim and writes it to disk in step 14.5.
 
 Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If the skill is not installed, log a loud warning `--with-plan requested but /superpowers:writing-plans not installed; continuing without a plan` and proceed to step 13 with `PLAN_OUTPUT=null`. Do not abort — the operator can re-run the planning skill later if needed.
 
@@ -707,13 +658,11 @@ Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If t
 
 Skip this step entirely if `DRY_RUN` is true.
 
-Each sub-path owns its own remote-refresh step. In 13a, the sequence is `fetch → checkout → pull → checkout -b` — byte-for-byte identical to the pre-`--worktree` version of this step (the explicit `git fetch` is redundant with the fetch performed by `git pull --ff-only`, but it is preserved verbatim to honor the "no behavior change when `--worktree` is absent" guarantee, down to the network call sequence). 13b uses its own fetch before `git worktree add` so that the worktree is based off a fresh `origin/<DEFAULT_BRANCH>` without touching the current working tree.
-
 Branch on `WORKTREE`:
 
 #### 13a. In-place branch (default — `WORKTREE=false`)
 
-Move the current working tree to the default branch, fast-forward, and branch from there. The explicit `git fetch` before `checkout` preserves byte-for-byte parity with the pre-`--worktree` version of this step — `git pull --ff-only` already fetches internally, so the explicit `git fetch` is redundant in terms of refs updated, but keeping it here guarantees the `--worktree`-absent network-call sequence has not changed:
+Move the current working tree to the default branch, fast-forward, and branch from there (the explicit `git fetch` is redundant with `git pull --ff-only` but is kept so the non-`--worktree` sequence stays byte-for-byte unchanged):
 
 ```bash
 DEFAULT_BRANCH=<from config>
@@ -730,7 +679,7 @@ Set `WORKTREE_PATH=null` (for the state file and recap). The operator continues 
 
 #### 13b. Isolated worktree (`WORKTREE=true`)
 
-The goal is to create the new branch inside a separate working tree so the operator can keep the primary working directory on whatever branch they were on (including — crucially — a feature branch they weren't ready to leave). Base the new worktree off `origin/<DEFAULT_BRANCH>` — **do not** `git checkout "$DEFAULT_BRANCH"` or run `git pull` in the current worktree, those would forcibly move the operator's primary directory onto the default branch and defeat the purpose of `--worktree`. Fast-forward of the local `<DEFAULT_BRANCH>` pointer is deferred to whenever the operator chooses to update it themselves (typically after merging this PR).
+Create the branch in a separate working tree, based on `origin/<DEFAULT_BRANCH>`, so the operator's primary directory stays on whatever branch it was on. **Do not** `git checkout "$DEFAULT_BRANCH"` or `git pull` in the current worktree; fast-forwarding the local `<DEFAULT_BRANCH>` is left to the operator.
 
 Refresh the remote-tracking ref before creating the worktree:
 
@@ -757,15 +706,13 @@ Then choose a path:
   >
   > Set `WORKTREE_PATH=<path the skill used>`.
 
-  The leading `/` on the skill name matches the repo's `Invoke the /plugin:command skill via the Skill tool` convention used by every other Skill invocation in this file (`/kagura-memory:session-start`, `/claude-c-suite:ask`, …) — see CONTRIBUTING.md for why this phrasing is load-bearing for reliable Skill-tool routing.
-
-  **Skill-tool failure → degrade, do not abort.** If the Skill invocation fails (skill not found, transient error, the skill reports an error rather than a path), surface the error as a single-line warning (`warning: /superpowers:using-git-worktrees invocation failed — <first line of skill error>; falling back to native git worktree add`) and continue to the `SUPERPOWERS_PRESENT=false` fallback block below. `--worktree` remains usable even when superpowers is installed-but-broken; the operator never has to uninstall a plugin to recover. Only abort if the fallback path itself fails — in which case use the shape-specific recovery from the fallback block.
+  **Skill-tool failure → degrade, do not abort.** If the invocation fails (skill not found, transient error, an error instead of a path), print the single-line warning `warning: /superpowers:using-git-worktrees invocation failed — <first line of skill error>; falling back to native git worktree add` and continue with the `SUPERPOWERS_PRESENT=false` block below. Only abort if that fallback fails too, with its shape-specific recovery.
 
 - **`SUPERPOWERS_PRESENT=false` — direct fallback**: create the worktree under the repo-local `.worktrees/` convention (gitignored via `/.worktrees/`).
 
-  Anchor paths at the repo root (`git rev-parse --show-toplevel`) so `/start --worktree` behaves correctly regardless of which subdirectory the operator invoked it from. The repo-root `/.worktrees/` gitignore rule is root-anchored, so a worktree accidentally created at `<subdir>/.worktrees/<branch>` would NOT be ignored. Pinning to the repo root also keeps the stale-registration compare (which is against absolute paths from `git worktree list --porcelain`) correct.
+  Anchor the path at the repo root (`git rev-parse --show-toplevel`) regardless of the invoking subdirectory — the `/.worktrees/` gitignore rule is root-anchored, and the stale-registration compare below is against absolute paths.
 
-  Three stale-state shapes exist and each needs a different recovery — probe both the filesystem and the registry independently (do NOT short-circuit: dir-on-disk and registry-registered are orthogonal), then dispatch the correct recovery message:
+  Probe the filesystem and the worktree registry independently (they are orthogonal) and dispatch the matching recovery:
 
   | Disk | Registered | Recovery |
   |---|---|---|
@@ -804,11 +751,9 @@ Then choose a path:
   git worktree add "$WORKTREE_PATH" -b "<branch>" "origin/$DEFAULT_BRANCH"
   ```
 
-  `WORKTREE_PATH` is stored in the state file and rendered in the step 16 recap exactly as computed above — i.e. an absolute path under the repo root. The `cd <WORKTREE_PATH>` hint then works from any shell regardless of the operator's current directory. Abort cleanly with the structured error for the detected shape rather than surfacing the raw `git worktree add` error. Use `grep -qxF` so the registry comparison is a fixed-string exact match on the whole line, avoiding regex / substring false matches when another registered worktree path contains `WORKTREE_PATH` as a substring.
+  `WORKTREE_PATH` is stored in the state file and rendered in the step-16 recap exactly as computed — an absolute path, so the `cd` hint works from any shell. Surface the structured error above, not the raw `git worktree add` error. `grep -qxF` keeps the registry compare a whole-line fixed-string match.
 
-In both sub-paths, the branch name (`<branch>`) is the same value computed in step 6 — it already accounts for `--branch=<override>`, so when both `--worktree` and `--branch=<override>` are set the worktree directory is `.worktrees/<override>` (fallback path) or whatever superpowers picked for that branch name (delegated path).
-
-Do NOT `cd` into `WORKTREE_PATH` from within this command — the operator's shell is what needs to move, not Claude's virtual working directory. Step 16's recap instructs the operator explicitly.
+In both sub-paths `<branch>` is the step-6 value, which already reflects `--branch=<override>` (fallback worktree at `.worktrees/<override>`). Do NOT `cd` into `WORKTREE_PATH` from within this command — the step-16 recap tells the operator to.
 
 ### 14. Persist the state file
 
@@ -819,7 +764,7 @@ mkdir -p ~/.claude/cache/gh-issue-driven
 chmod 0700 ~/.claude/cache/gh-issue-driven
 ```
 
-The `chmod 0700` is idempotent — running on an already-correct directory is a no-op. This keeps per-branch state files (which may contain issue metadata) readable only by the current user. `ship.md` step 10 also asserts `chmod 0700` for the ship-only flow (no prior `/start`).
+`chmod 0700` is idempotent and keeps the state files (which carry issue metadata) user-only; `ship.md` step 10 asserts the same for the ship-only flow.
 
 Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic mv.
 
@@ -876,15 +821,15 @@ The `plan` block has this shape when `WITH_PLAN=true` and the plan was produced 
 Otherwise `plan` is JSON `null`. The plan markdown itself is written in step 14.5 (below) — this state field is just a pointer.
 
 Schema notes:
-- **`issues` array**: contains all issues in input order. Each entry has `number`, `title`, `url`, and `labels`.
-- **`issue_number`, `issue_title`, `issue_url`**: v1-compatible aliases pointing to `issues[0]` (the primary issue). These fields ensure that `ship.md`, `status.md`, and any v1-era state readers continue to work without modification until they adopt the `issues` array.
-- **`is_batch`**: `true` when `len(issues) > 1`, `false` otherwise. Allows downstream commands to branch on batch mode without counting the array.
-- **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). Serialized as a JSON string when populated, or the unquoted JSON literal `null` when `--worktree` was not used — matching the convention of other nullable fields like `gate1.escalated_to`. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
-- **`plan`**: set when `--with-plan` was used and the writing-plans skill produced output (step 14.5). Serialized as a JSON object `{path, generator, generated_at}` when populated, or the unquoted JSON literal `null` otherwise. Schema-additive — readers that do not yet know about `plan` ignore it without error.
-- **`open_memos`**: the step-7 `OPEN_MEMOS` (`[]` when none were found or recall was skipped). Read by `/ship` step 9a, which asks which ones the PR resolved. Schema-additive — absent is equivalent to `[]`.
-- **`no_memory`**: `true` when `/start` ran with `no-memory`. `/ship` steps 9a, 12b and 14 read it and skip every memory read and write — the flag itself is never otherwise visible to `/ship`. Schema-additive — absent is equivalent to `false`.
-- **`gate1.reviewer`** accepts a new sentinel value `"size-heuristic"` (added with `gate1.size_heuristic`) in addition to the existing `"ask"` / `"ceo"`. Readers should treat unknown reviewer values as opaque labels (display verbatim) rather than rejecting them — future heuristics or third-party gate1 implementations may introduce additional sentinels.
-- **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path` / `plan`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`; absent `plan` is equivalent to `null`.
+- **`issues`**: every issue in input order — `number`, `title`, `url`, `labels`.
+- **`issue_number` / `issue_title` / `issue_url`**: v1 aliases of `issues[0]` so `ship.md`, `status.md` and other v1-era readers keep working.
+- **`is_batch`**: `true` when `len(issues) > 1`.
+- **`worktree_path`**: from step 13b (the path superpowers returned, or the `.worktrees/<branch>` fallback); the JSON literal `null` without `--worktree`, like other nullable fields (`gate1.escalated_to`). `/gh-issue-driven:status` renders the `cd` hint from it.
+- **`plan`**: `{path, generator, generated_at}` when `--with-plan` produced output (step 14.5), else `null`. Schema-additive.
+- **`open_memos`**: the step-7 `OPEN_MEMOS` (`[]` when none or recall skipped). Read by `/ship` step 9a. Schema-additive — absent is equivalent to `[]`.
+- **`no_memory`**: `true` when `/start` ran with `no-memory`; `/ship` steps 9a, 12b and 14 read it and skip every memory read and write. Schema-additive — absent is equivalent to `false`.
+- **`gate1.reviewer`** also accepts the sentinel `"size-heuristic"` (step 7a) besides `"ask"` / `"ceo"`; readers treat unknown values as opaque labels.
+- **v1 state files** (no `issues`, `worktree_path`, `plan`) stay valid: readers check `issues` first and fall back to the aliases; absent `worktree_path` / `plan` is `null`.
 
 `<branch-flat>` is the branch name with `/` replaced by `-` so it works as a filename.
 
@@ -900,7 +845,7 @@ Otherwise, write `PLAN_OUTPUT` verbatim to `~/.claude/cache/gh-issue-driven/<bra
 
 Write `GATE1_OUTPUT` verbatim to `~/.claude/cache/gh-issue-driven/<branch-flat>.gate1.md` (this is plugin cache, allowed). Skip in `DRY_RUN`.
 
-When `SIZE_HEURISTIC_SKIPPED=true`, the `GATE1_OUTPUT` value is the synthetic "skipped" markdown from step 7a — write it as-is so post-hoc readers (`/gh-issue-driven:status`, audit trails) see exactly what was recorded as the gate1 decision.
+When `SIZE_HEURISTIC_SKIPPED=true`, `GATE1_OUTPUT` is the synthetic markdown from step 7a — write it as-is so `/gh-issue-driven:status` and audit trails see what was recorded.
 
 ### 16. Print the recap
 
@@ -948,19 +893,15 @@ Memos   Open memos in this area: <n>          ← omit the line when OPEN_MEMOS 
           <memory_id first 8>  <summary, first 100 chars>
 ```
 
-The `Worktree` line is printed verbatim from `WORKTREE_PATH` (set in step 13b). When `--worktree` is combined with `--branch=<override>`, `WORKTREE_PATH` already reflects the override (e.g. `.worktrees/<override>`), so the `cd` hint always matches reality. When `--worktree` is absent, both `WORKTREE_PATH` and this entire line block are omitted — the recap stays identical to the pre-`--worktree` output for non-worktree runs.
-
-**`DRY_RUN` + `--worktree` interaction**: step 13 (branch + worktree creation) is skipped when `DRY_RUN` is true, so `WORKTREE_PATH` is never assigned. The recap suppresses the `Worktree` block in that combined case — rendering the block would either claim a literal placeholder or invent a preview path the superpowers-delegation path would not necessarily pick. The `[DRY RUN]` banner plus the Branch line are enough to convey the preview intent; the operator re-runs without `dry-run` to get the actual worktree location.
+The `Worktree` block prints `WORKTREE_PATH` verbatim (it already reflects `--branch=<override>`), and is omitted entirely when `--worktree` is absent or under `DRY_RUN` (step 13 was skipped, so `WORKTREE_PATH` is unset — the `[DRY RUN]` banner and the Branch line carry the preview).
 
 ### 17. Print implementation guidance
 
-After the recap block, print an **implementation guidance** section. This prepares the material — gate1 key suggestions (17a), detected workflow skills (17b), the suggested workflow (17c) — that step 18 will reuse when offering the operator a one-tap continue path.
+After the recap, print an **implementation guidance** section — the gate1 key suggestions (17a), the detected workflow skills (17b) and the suggested workflow (17c) that step 18 reuses for its one-tap continue path.
 
 #### 17a. Extract gate1 key suggestions
 
-If `GATE1_KEY_SUGGESTIONS` was already set by step 11a (i.e., `gate1.green_continue_requires_confirm` was `true` and the green path ran through step 11a), reuse it directly — do not re-scan `GATE1_OUTPUT`.
-
-Otherwise (step 11a was skipped because the config option is `false`, or the verdict was not green), scan `GATE1_OUTPUT` for actionable guidance: look for bullet points, numbered list items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case". Extract up to **3** of the most concrete items and store as `GATE1_KEY_SUGGESTIONS`. If nothing extractable, omit the checklist entirely (do not invent guidance).
+Reuse `GATE1_KEY_SUGGESTIONS` when step 11a already set it. Otherwise scan `GATE1_OUTPUT` for actionable guidance — bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" — and store up to **3** of the most concrete items as `GATE1_KEY_SUGGESTIONS`. If nothing is extractable, omit the checklist (do not invent guidance).
 
 Format the extracted items as an indented bullet list:
 
@@ -975,27 +916,23 @@ If `GATE1_VERDICT` is `unknown` (reviewer skills not installed), omit this sub-s
 
 #### 17b. Detect available workflow skills
 
-Check the current conversation's system-reminder skill list for the presence of these skills.
+Check the current conversation's skill list for these skills. Implementation has two layers: pick **one orchestration** by the change's size/risk (avoid overkill — a trivial change needs none), and apply the **test-first discipline** inside it wherever the change has a test surface.
 
-Implementation has **two orthogonal layers**: pick **one orchestration** skill by the change's size/risk (**avoid overkill** — a trivial change needs none, edit directly), and apply the **test-first discipline** *inside* whichever orchestration you pick, wherever the change has a test surface.
+**Orchestration skills** (at most one, by scope):
 
-**Orchestration skills** (choose at most one, by scope):
+- `/feature-dev:feature-dev` — guided development for **moderate** features (discovery → exploration → questions → architecture → implementation → quality review → summary)
+- `/superpowers:subagent-driven-development` — execute a plan's independent tasks for **large / plan-driven** work
+- `/superpowers:executing-plans` — execute a written plan with review checkpoints (alternative for large work)
 
-- `/feature-dev:feature-dev` — guided feature development for **moderate** features (7-phase: discovery → exploration → questions → architecture → implementation → quality review → summary)
-- `/superpowers:subagent-driven-development` — execute an implementation plan's independent tasks for **large / plan-driven** work
-- `/superpowers:executing-plans` — execute a written plan with review checkpoints (alternative to the above for large work)
+**Implementation discipline** (default-on; not a fourth orchestration tier):
 
-`/feature-dev:feature-dev` is **not** the only orchestration — choose by scope.
+- `/superpowers:test-driven-development` — test-first red→green→refactor wherever the change has a test surface (any real logic), the same contract as `/objective` step 5b. Opt out only for pure docs / formatting / rename / config. The default applies even when the skill is not installed (drive it test-first manually) — only the skill's *name* is detection-gated.
 
-**Implementation discipline** (default-on — a discipline, *not* a fourth orchestration tier):
+**Review skill** (before shipping):
 
-- `/superpowers:test-driven-development` — test-first red→green→refactor. This is the **default discipline** wherever the change has a test surface (any real logic), mirroring `/objective` step 5b's "TDD as an invariant, not a forced march". Opt out only for pure docs / formatting / rename / config. The test-first **default applies even when this skill is not installed** (drive it test-first manually) — the skill is just the formalized helper, so **only the skill's name is detection-gated**, never the default itself.
+- `/code-review` — reviews the **working-tree diff** before `/ship` (no PR needed; effort levels low/medium/high/max, `--fix`).
 
-**Review skill** (run before shipping):
-
-- `/code-review` — the Claude Code skill for reviewing the **working-tree diff** before `/ship` (no PR required yet; effort levels low/medium/high/max, `--fix`).
-
-For each detected skill, include it in the suggested workflow below. For skills not detected, omit them silently — do not mention unavailable skills. **Exception — the test-first discipline:** the test-first sub-line in 17c is *always* shown because the default applies with or without the skill (it is a discipline, not a launchable tier); when `/superpowers:test-driven-development` is not detected, show the discipline but drop the skill name (phrase it as "drive it test-first manually") rather than omitting the line. This is the one carve-out from the "omit unavailable skills" rule.
+List detected skills in the workflow below and omit undetected ones silently — except the test-first line, which is always shown: without the skill, phrase it as "drive it test-first manually".
 
 #### 17c. Print the suggested workflow
 
@@ -1011,9 +948,9 @@ Suggested workflow:
   3. /gh-issue-driven:ship   ← when implementation is ready
 ```
 
-Renumber the steps to be contiguous (no gaps if a skill is omitted). Step 1 ("Implement") and the final step (`/ship`) are always present regardless of skill detection. Under step 1, list only the **orchestration** tiers whose skill was detected — the "direct edits" tier is always shown (it needs no skill). The **test-first discipline sub-line is always shown** (the default applies with or without the skill); name `/superpowers:test-driven-development` only when detected, otherwise phrase it as "drive it test-first manually". The discipline applies *across* the tiers — it is **not** a fourth orchestration option.
+Renumber the steps contiguously. Step 1 and the final `/ship` step are always present; under step 1 list the "direct edits" tier always and the orchestration tiers only when detected; the test-first line is always shown (naming `/superpowers:test-driven-development` only when detected).
 
-This is the **17c↔18 contract**: 17c is the *manual* menu (you can run any detected skill yourself). Step 18's one-tap *continue* only ever auto-launches an **orchestration** — `/feature-dev:feature-dev` (moderate) or a plan draft; the Large→subagent path auto-launches only under `--parallel` (otherwise step 18 drafts a plan you run). Step 18 never launches TDD as a standalone route — the test-first discipline is applied *within* whatever the continue action runs (see 18b/18e). So the menu never advertises an auto-launch that step 18 cannot perform.
+17c is the *manual* menu; step 18's one-tap continue only auto-launches an orchestration — `/feature-dev:feature-dev`, a plan draft, or (under `--parallel`) `/superpowers:subagent-driven-development` — and applies the test-first discipline inside it (18e), never as a standalone route.
 
 #### 17d. Respect `lang` setting
 
@@ -1021,13 +958,13 @@ When `lang != "en"`, produce the entire implementation guidance block (gate1 sug
 
 ### 18. HITL: choose next action
 
-After printing the recap and implementation guidance, give the operator an explicit choice instead of silently returning to the prompt. This closes the perceived "why did it just stop?" gap while keeping the phase boundary intact — the operator stays in control, but a one-tap path forward is offered.
+After the recap and guidance, offer the operator an explicit next action instead of silently returning to the prompt — the phase boundary stays, with a one-tap path forward.
 
 #### 18a. Skip conditions
 
 Skip step 18 entirely (return to prompt immediately) when **any** of the following hold:
 
-- `AUTONOMOUS` is true — the step-18 next-action prompt is itself a HITL gate, and an unattended run cannot block on it. Return control to the caller (e.g. `/objective`) immediately; the caller drives implementation (`/objective` does so in its own step 5b). Log one line `autonomous(<level>): skipping step-18 next-action prompt, returning control to caller`. This applies to the `red` persist-and-return path too — that path already exited cleanly in step 12 and never reaches here.
+- `AUTONOMOUS` is true — this prompt is itself a HITL gate; return control to the caller (e.g. `/objective`, which drives implementation in its step 5b). Log `autonomous(<level>): skipping step-18 next-action prompt, returning control to caller`.
 - `DRY_RUN` is true — no branch was created, there is nothing to continue into.
 - `GATE1_VERDICT` is `red` AND `FORCE` is not true — already aborted (interactive) or persisted-and-returned (autonomous) in step 12, never reaches here.
 - `GATE1_VERDICT` is `yellow` AND the operator answered "No, abort" in step 12 — already exited.
@@ -1037,27 +974,27 @@ If `GATE1_VERDICT` is `unknown` (reviewer skills missing) and `AUTONOMOUS` is fa
 
 #### 18b. Pick the "continue" target
 
-Determine what the **continue** option will actually do, based on flags, skill detection from step 17b, and `IS_BATCH`:
+Pick the continue target from flags, step 17b detection and `IS_BATCH`:
 
-- If `PARALLEL=true` (the operator opted in via `--parallel`) AND `PLAN_OUTPUT` is non-null (the writing-plans step produced a usable plan) → continue target is **"invoke `/superpowers:subagent-driven-development` via the Skill tool, passing the plan from step 12a as its input"**. This branch is only reachable when `WITH_PLAN=true` as well (step 1's interaction rules guarantee it). If the `/superpowers:subagent-driven-development` skill is not installed OR `PLAN_OUTPUT` is null (writing-plans skill was unavailable or returned nothing usable), fall through to the next applicable branch and log a one-line warning naming the reason.
-- Else if `IS_BATCH` is true → continue target is **"draft a per-issue implementation plan in this conversation"**. Do **not** auto-launch `/feature-dev` for batch mode (it is single-feature oriented).
-- Else if `/feature-dev:feature-dev` was detected in step 17b → continue target is **"invoke `/feature-dev:feature-dev` via the Skill tool"**.
-- Else → continue target is **"draft an implementation plan in this conversation, grounded in the issue body and gate1 suggestions"**.
+- `PARALLEL=true` AND `PLAN_OUTPUT` non-null → **"invoke `/superpowers:subagent-driven-development` via the Skill tool, passing the plan from step 12a as its input"**. If that skill is not installed or `PLAN_OUTPUT` is null, log a one-line warning naming the reason and fall through.
+- Else if `IS_BATCH` → **"draft a per-issue implementation plan in this conversation"** (never auto-launch `/feature-dev` for a batch — it is single-feature oriented).
+- Else if `/feature-dev:feature-dev` was detected → **"invoke `/feature-dev:feature-dev` via the Skill tool"**.
+- Else → **"draft an implementation plan in this conversation, grounded in the issue body and gate1 suggestions"**.
 
-Record this as `CONTINUE_TARGET_LABEL` (a short human-readable string for the AskUserQuestion option label) and `CONTINUE_TARGET_ACTION` (the actual follow-up action).
+Record `CONTINUE_TARGET_LABEL` (short label for the option) and `CONTINUE_TARGET_ACTION` (the follow-up action).
 
 #### 18c. Print decision considerations
 
-Just before invoking AskUserQuestion, print a short **Considerations** block so the operator has the key context for the decision in front of them — they should not have to scroll back through the recap and gate1 suggestions to choose. Keep it tight (≤ 6 bullets total). Compose it from material already gathered in earlier steps; do **not** invent new analysis here.
+Just before the AskUserQuestion, print a short **Considerations** block (≤ 6 bullets) from material already gathered — do **not** invent new analysis:
 
 Include only the bullets that apply:
 
-- **Gate1 verdict**: re-state `GATE1_VERDICT` plus the reviewer route (e.g. `green via /ask` or `yellow via /ask, escalated to /ceo`). If `unknown`, say so explicitly and note that no design review actually ran.
-- **Top gate1 suggestions**: re-list the (up to 3) key suggestions extracted in step 17a, in the same order. If 17a produced none, omit this bullet — do not fabricate.
-- **Scope shape**: if `IS_BATCH` is true, state how many issues are bundled and remind the operator that option 2 will draft per-issue plans (not auto-launch `/feature-dev`). If single-issue, omit.
-- **Skills available for the continue path**: state only which of the implementation skills (`/feature-dev:feature-dev`, `/superpowers:subagent-driven-development`, `/superpowers:executing-plans`, `/superpowers:test-driven-development`) and the `/code-review` skill were detected in step 17b. Do **not** mention skills that were not detected — this matches step 17b's "omit silently" rule. The continue target's label (set in 18b) already conveys what option 2 will do, so operators do not need to be told what is missing.
-- **Memory recall signal**: if step 7 produced ≥ 1 related context, include a one-line pointer (`<k> related contexts recalled — see recap above`). If none or skipped, omit.
-- **Caveats**: anything actionable the operator should weigh, **but only if that caveat was explicitly recorded in earlier steps as a flag or variable** — e.g. yellow verdict carried forward (from step 12), `force` flag in effect (from step 0 argument parsing). Do **not** infer caveats from derived values alone — for example, do not claim a branch-name collision just by inspecting `BRANCH`, because no earlier step records a `BRANCH_COLLISION` flag. If a caveat is not explicitly tracked upstream, it does not belong here. Omit the bullet entirely if no flagged caveat applies.
+- **Gate1 verdict** and route (e.g. `green via /ask`, `yellow via /ask, escalated to /ceo`); for `unknown`, say that no design review ran.
+- **Top gate1 suggestions**: the step-17a items in order; omit when there are none.
+- **Scope shape**: in batch mode, the number of bundled issues and that option 2 drafts per-issue plans; omit for a single issue.
+- **Skills available for the continue path**: only the detected ones among `/feature-dev:feature-dev`, `/superpowers:subagent-driven-development`, `/superpowers:executing-plans`, `/superpowers:test-driven-development` and `/code-review` — never mention undetected skills.
+- **Memory recall signal**: `<k> related contexts recalled — see recap above` when step 7 returned ≥ 1; omit otherwise.
+- **Caveats**: only facts an earlier step recorded as a flag or variable (a yellow verdict carried forward, `force` in effect) — never inferred (no `BRANCH_COLLISION` flag exists, so do not claim a collision from `BRANCH`). Omit when none applies.
 
 Format as a fenced block titled `Considerations:` directly above the AskUserQuestion call, e.g.:
 
@@ -1075,20 +1012,20 @@ When `lang != "en"`, produce the Considerations block in the language specified 
 
 #### 18d. Ask the operator
 
-Invoke the AskUserQuestion tool with this question and these three **fixed** options (no inline free-form input). The question wording mirrors the yellow-confirm pattern in step 12 for consistency. All three options are fixed selections — do **not** rely on any "Other" or free-form mode of AskUserQuestion. No other section of this repo uses such a mode (the precedents in step 12 and `commands/doctor.md:140-146` use fixed options only) and its portability is not documented.
+Invoke the AskUserQuestion tool with this question and three **fixed** options — no free-form or "Other" mode (the step-12 precedent uses fixed options only):
 
 - **Question**: `Gate1 is <verdict>. How would you like to proceed with implementation?`
-- **Option 1 — "Stop here"**: return to the prompt. The operator will drive implementation manually and invoke `/gh-issue-driven:ship` when ready. This is the current (pre-step-18) behavior and remains the safe default.
-- **Option 2 — "<CONTINUE_TARGET_LABEL>"**: proceed automatically with `CONTINUE_TARGET_ACTION`. The label should be concrete, e.g. `Launch /feature-dev:feature-dev now` or `Draft an implementation plan now`.
-- **Option 3 — "I have feedback / different direction"**: a fixed selection (no inline text input). Selecting it switches step 18 into a follow-up turn (handled in 18e) where the operator types their note as a normal next message, and Claude responds conversationally — without auto-launching any skill. This option exists so the operator can pivot without first having to escape `/start` and retype context.
+- **Option 1 — "Stop here"**: return to the prompt; the operator implements manually and runs `/gh-issue-driven:ship` when ready (the safe default).
+- **Option 2 — "<CONTINUE_TARGET_LABEL>"**: perform `CONTINUE_TARGET_ACTION`. Use a concrete label, e.g. `Launch /feature-dev:feature-dev now` or `Draft an implementation plan now`.
+- **Option 3 — "I have feedback / different direction"**: a fixed selection; the operator types their note as the next message and Claude answers conversationally without launching any skill (18e).
 
 #### 18e. Handle the response
 
-- **Stop here** → print a one-line acknowledgement (`OK — returning to prompt. Run /gh-issue-driven:ship when implementation is ready.`) and stop. Equivalent to the legacy behavior.
-- **Continue (option 2)** → print a one-line acknowledgement naming the action, then immediately perform `CONTINUE_TARGET_ACTION`. For the `--parallel` case, this means invoking the `/superpowers:subagent-driven-development` skill via the Skill tool with the plan content (from step 14.5's `plan.path`) as its working input. For the `/feature-dev` case this means invoking the `/feature-dev:feature-dev` skill via the Skill tool. For the "draft a plan" case, begin a normal conversational turn that summarizes the issue, lists the gate1 key suggestions extracted in step 17a, and proposes a concrete implementation outline grounded in files you have read or will read.
+- **Stop here** → print `OK — returning to prompt. Run /gh-issue-driven:ship when implementation is ready.` and stop.
+- **Continue (option 2)** → print a one-line acknowledgement naming the action, then perform `CONTINUE_TARGET_ACTION`: for `--parallel`, invoke `/superpowers:subagent-driven-development` via the Skill tool with the plan from step 14.5's `plan.path`; for `/feature-dev`, invoke `/feature-dev:feature-dev` via the Skill tool; for "draft a plan", summarize the issue, list the step-17a suggestions and propose a concrete outline grounded in files you have read or will read.
 
-  **Apply the test-first discipline within whichever orchestration runs.** Regardless of the continue target, when the change has a test surface (any real logic — not pure docs / formatting / rename / config), drive the implementation **test-first**: adopt the `/superpowers:test-driven-development` discipline **in-line** — write the failing test, watch it fail, write the minimal code to pass, refactor while green. This is the same in-line execution model as every other Skill invocation in this command (the parent adopts the role in this same conversation — it is **not** a spawned process), and it composes *inside* the orchestration rather than replacing it (e.g. `/feature-dev`'s implementation phase runs test-first; a plan draft is implemented test-first). The default holds even when `/superpowers:test-driven-development` is not installed — drive it test-first manually. Skip the discipline only for the pure docs / formatting / rename / config opt-out.
-- **Feedback / different direction (option 3)** → print a one-line acknowledgement that invites the operator to type their note, e.g. `Got it — what would you like to change or discuss?`. Then **stop and wait** for the operator's next message. When that next message arrives, treat it as the feedback and respond to it conversationally. Do **not** invoke any skill. Do not assume the feedback overrides gate1 — if it implies a design change large enough to invalidate gate1, say so explicitly and suggest re-running `/gh-issue-driven:start` once the new direction is settled.
+  **Apply the test-first discipline inside whichever orchestration runs**: wherever the change has a test surface (any real logic — not pure docs / formatting / rename / config), write the failing test, watch it fail, write the minimal code to pass, refactor while green — in-line, as part of the orchestration (e.g. `/feature-dev`'s implementation phase runs test-first). The default holds even when `/superpowers:test-driven-development` is not installed.
+- **Feedback / different direction (option 3)** → print `Got it — what would you like to change or discuss?`, then **stop and wait**. Treat the next message as the feedback and respond conversationally — do **not** invoke any skill, and do not assume the feedback overrides gate1; if it implies a design change large enough to invalidate gate1, say so and suggest re-running `/gh-issue-driven:start`.
 
 After step 18 completes (regardless of which branch), `/start` is done. The state file written in step 14 is the source of truth for `/ship` and `/status`; step 18's choice is **not** persisted (it only affects the in-conversation flow).
 

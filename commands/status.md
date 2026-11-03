@@ -8,15 +8,7 @@ arguments:
 
 ## Output language
 
-Load `lang` just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"` if the file is missing, unparseable, or doesn't set `lang`). status.md is read-only and short, so this is a minimal one-key read — no full deep-merge of all config defaults is needed for this command.
-
-When `lang != "en"`, produce the pretty-printed status block in the language specified by `lang` — the section labels (`Issue`, `Branch`, `Phase`, `Gate1`, `Gate2`, `PR`, `Copilot Loop`, `Exit`, `Detection`, `Last polled`) stay English (they map directly to state JSON field names), but the prose around them, the silent_no_op hint footer, and the `all` mode footer line are localized.
-
-What stays English regardless of `lang`:
-
-- State JSON field names and enum values (`green`, `yellow`, `red`, `pass`, `fail`, `silent_no_op`, etc.) — Layer C
-- Branch names, PR URLs, file paths, summary_path values
-- The verdict and phase tokens themselves
+`lang` is read just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"` when the file is missing, unparseable or does not set it) — a one-key read; this read-only command needs no full config merge. When `lang != "en"`, the prose of the status block, the silent_no_op hint footer and the `all` mode footer line are localized, while the section labels (`Issue`, `Branch`, `Phase`, `Gate1`, `Gate2`, `PR`, `Copilot Loop`, `Exit`, `Detection`, `Last polled`) stay English — they map to state JSON field names. Always English: state JSON field names and enum values (`green`, `yellow`, `red`, `pass`, `fail`, `silent_no_op`, etc.), branch names, PR URLs, file paths, summary_path values, and the verdict and phase tokens themselves.
 
 ## Trust boundary
 

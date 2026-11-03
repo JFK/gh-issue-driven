@@ -11,16 +11,9 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 13, AskUserQuestion text, dedup/review/enrichment narration, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — dedup/review/enrichment narration, the step-13 recap, AskUserQuestion text — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: the issue title and body created via `gh issue create`; state-file JSON values and `phase` enums; captured command output; and the `## Verdict:` line with its `green|yellow|red` tokens. The three-layer policy is defined once, under `lang` in `/gh-issue-driven:config`.
 
-The following MUST stay English regardless of `lang`:
-
-- Issue title and body created via `gh issue create` (durable artifacts — Layer A)
-- `## Verdict:` line and tokens `green|yellow|red` (parser contract — Layer C)
-- State file JSON values, `phase` enum values (parser contract — Layer C)
-- Bash command output captured into variables (`gh issue list --json` results, `gh repo view --json` results, etc.) — machine-shaped data, never localized
-
-When `lang != "en"` AND step 7 invokes a reviewer skill, append a language hint as the final line of the `## Your task` section, BEFORE the `## Verdict:` instruction:
+When `lang != "en"`, the reviewer prompt (step 7) ends its `## Your task` section — before the `## Verdict:` instruction — with:
 
 ```
 Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.

@@ -24,6 +24,8 @@ The 3-layer policy governs what gets localized:
 
 When `lang != "en"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a language hint appended that includes the raw `lang` value for determinism, with a best-effort human-readable name (e.g. `Please respond in Japanese (日本語) (lang: ja).`). The raw value ensures correctness even for BCP-47 tags like `zh-Hans` or `pt-BR` where the human-readable name may be ambiguous. Reviewer responses then naturally produce localized review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English). This is best-effort — reviewer skills are separate plugins and may occasionally respond in English regardless of the hint.
 
+Every other command file opens with a short, self-sufficient summary of this policy (its own durable artifacts, parser tokens and prompt hint); this section is the canonical definition — change the policy here first.
+
 ### `gate2.binary_gate`
 
 Optional skill name that gate2 invokes as a **binary release gate** (returns `pass` or `fail`, with `fail` being a hard release block that even `--force` cannot override). The default is `null`, which means **gate2 runs in advisor-only mode** — only the 3 advisors (`cso`, `qa-lead`, `cto`) are invoked, and their aggregate verdict (green/yellow/red) is the sole gate2 signal.
@@ -59,9 +61,21 @@ Selects which post-PR reviewer to use in review.md step 5 and the standalone `/g
 
 **Deprecated: `copilot.enabled`** — no longer consulted. Previously, when `review.provider` was absent, `copilot.enabled=false` forced `none`. As of this version the default is `none` regardless, and `copilot.enabled` is ignored. Migrate by setting `review.provider` explicitly (`"copilot"` restores the old auto-review behavior).
 
+### Model-tier rubric (shared)
+
+The one scope → tier rubric behind every `auto` model setting — `review.model` (the fix-application subagent in `/gh-issue-driven:review`), `goal.inner_review.model` (the inner review in `/gh-issue-driven:objective`) — and the effort of the `/code-review` fallback. A fixed alias (`haiku` / `sonnet` / `opus` / a full model id) is used verbatim.
+
+| Scope class | Signals (from the diff) | `auto` tier | `/code-review` effort (fallback) |
+|---|---|---|---|
+| docs-only / trivial | every path is `*.md` or under `docs/`, OR fewer than ~20 changed lines | `haiku` | `low` |
+| normal | anything else | `sonnet` | `medium` |
+| risky / wide | a path matching `auth\|secret\|credential\|migration\|security`, OR more than ~10 files, OR more than ~400 changed lines | `opus` | `high` (`max` only when the operator asks for it) |
+
+`review.md` step 5b carries the executable form of the signals (evaluated on `gh pr diff`) — keep it in sync with this table; `objective.md` step 5b carries only the scope → tier line and classifies the working-tree diff by these same signals. The docs-only signal here is the fix-subagent's existing heuristic and is deliberately *not* `gate2.diff_scope_skip.docs_only_patterns` (which excludes `commands/*.md`); unifying the two is part of #102.
+
 ### `review.model`
 
-Default `"auto"`. One of `auto | haiku | sonnet | opus` (or a full model id). Tier for the **fix-application subagent** that `/gh-issue-driven:review` dispatches to apply review findings. `auto` right-sizes by the PR's diff scope/risk (docs-only → haiku, normal → sonnet, risky/wide → opus). Does not affect provider selection, the gate2 cascade, or `/code-review`.
+Default `"auto"`. One of `auto | haiku | sonnet | opus` (or a full model id). Tier for the **fix-application subagent** that `/gh-issue-driven:review` dispatches to apply review findings. `auto` right-sizes by the PR's diff scope/risk through the shared rubric above. Does not affect provider selection, the gate2 cascade, or `/code-review`.
 
 **Interaction with the `no-copilot` flag**: The `no-copilot` flag on `/gh-issue-driven:ship` overrides `review.provider` to `"none"` for that invocation only. It does not modify the config file.
 
@@ -166,7 +180,7 @@ Tuning for `/gh-issue-driven:objective`, the autonomous milestone-completion loo
 | `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. `/objective` forwards this value verbatim to the delegated `/start` and `/ship` as `--autonomous=<level>` (#74): under `red-only`/`unattended` they suppress their own green/yellow + Copilot-invocation prompts (and on `red` without `force` persist the verdict and return control rather than aborting); under `attended` suppression is disabled and the sub-commands' own prompts fire as normal. |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
 | `inner_review.enabled` | `true` | Whether step 5b runs a **cheap inner-review pass** over the working-tree diff before handing off to `/ship`'s heavy gate2 cascade. When `false`, 5b falls back to `/code-review` at a size-scaled effort level (the pre-#76 behavior). |
-| `inner_review.model` | `"auto"` | Model tier for the inner-review subagent. `auto` (default) right-sizes by working-tree diff scope (docs→haiku, normal→sonnet, risky→opus); a fixed alias (`haiku`/`sonnet`/`opus`/id) is used verbatim. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade. Implementation runs on the normal session model regardless. |
+| `inner_review.model` | `"auto"` | Model tier for the inner-review subagent. `auto` (default) right-sizes by working-tree diff scope through the shared model-tier rubric (above `review.model`); a fixed alias (`haiku`/`sonnet`/`opus`/id) is used verbatim. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade. Implementation runs on the normal session model regardless. |
 | `inner_review.max_rounds` | `2` | Cap on the cheap fix-and-recheck loop (the inner review is a fast filter, not the authoritative gate). Findings beyond the cap are left for gate2 to catch. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/objective` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
