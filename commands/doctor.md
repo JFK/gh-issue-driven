@@ -8,15 +8,7 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all diagnostic output in the language specified by `lang` — the ✅/⚠️/❌ check labels themselves stay as the literal emoji, but the descriptions, fail reasons, and `try:` hint text are localized. The Copilot review setup section's AskUserQuestion options are also localized when `lang != "en"`.
-
-What stays English regardless of `lang`:
-
-- File paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`)
-- The cache file's JSON content and the state schema field names
-- The `try:` hint commands themselves (e.g. `apt install jq`, `/plugin install ...`) — only the surrounding prose is localized
-
-The Configuration file health check at step 13 reads `~/.claude/gh-issue-driven-config.json` as part of its informational scan; doctor's own `lang` read in this section is just-in-time, separate from step 13. (Same just-in-time pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`.)
+`lang` is read just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"`; separate from the step-13 configuration health check, like the Copilot setup section's read of `copilot.skip_setup_prompt`). When `lang != "en"`, the diagnostic prose is localized — check descriptions, fail reasons, the text around `try:` hints, and the Copilot review setup section's AskUserQuestion options — while the ✅/⚠️/❌ labels stay the literal emoji. Always English: file paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`), the `try:` commands themselves (e.g. `apt install jq`, `/plugin install ...`), the cache file's JSON content and the state schema field names.
 
 ## Trust boundary
 

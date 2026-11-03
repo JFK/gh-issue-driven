@@ -8,17 +8,9 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 15, AskUserQuestion 文言, gate2 yellow/red abort messages, and any narration Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
+`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — narration between steps, gate2 yellow/red abort messages, the step-15 recap, AskUserQuestion text — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: PR title/body, commit messages, branch names; state-file JSON values, file paths and `summary_path` values, and the `exit_reason` / `detection_method` / `phase` enums; captured command output; and the `## Verdict:` line with its tokens — `pass|fail` for `/audit`, `green|yellow|red` for the advisors (`decline` is gate1-only, in `start.md`). The three-layer policy is defined once, under `lang` in `/gh-issue-driven:config`.
 
-The following MUST stay English regardless of `lang`:
-
-- PR title, PR body, commit messages, branch names (durable artifacts — Layer A)
-- `## Verdict:` line and tokens `pass|fail|green|yellow|red` — `pass|fail` for `/audit`, `green|yellow|red` for the three advisors. `decline` is gate1-only and lives in `start.md`'s parallel section. (parser contract — Layer C)
-- `exit_reason` / `detection_method` / `phase` enum values in state JSON (parser contract — Layer C)
-- File paths and `summary_path` values written to / read from the state JSON (e.g. `~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md`) — these are filesystem identifiers, not localized prose
-- Bash command output captured into variables (`gh pr view --json ...` results, etc.) — these are read as machine-shaped data, never localized
-
-When `lang != "en"` AND step 5 builds the gate2 prompt block, append a language hint to the `## Your task` section in the prompt sent to **all *invoked* gate2 reviewers** — the 3 advisors in the default advisor-only mode, plus the binary gate skill when `gate2.binary_gate` is configured (so 3 or 4 reviewers depending on config). The append happens BEFORE the `## Verdict:` instruction. Include the raw `lang` value for determinism, with a best-effort human-readable name where recognizable (e.g. `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
+When `lang != "en"`, the gate2 prompt block (step 5) sent to **every invoked reviewer** — the advisors, plus the binary gate when `gate2.binary_gate` is configured — ends its `## Your task` section, before the `## Verdict:` instruction, with the line below (raw `lang` value plus a best-effort language name, `ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
 ```
 Please respond in <language name> (lang: <raw lang value>). The final `## Verdict:` line MUST stay English.

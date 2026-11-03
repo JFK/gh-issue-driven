@@ -11,16 +11,7 @@ arguments:
 
 ## Output language
 
-Read `lang` from the effective config (default `"en"`). When `lang != "en"`, produce all **operator-facing ephemeral output** in the language specified by `lang` — including the recap text in step 13, AskUserQuestion prompts, error messages, and any prose Claude generates between steps. Translate on the fly using Claude's native multilingual ability — do **not** translate the templates in this command file.
-
-The following MUST stay English regardless of `lang`:
-
-- Commit message (`chore: release v<version>`) (durable artifact — Layer A)
-- Tag name (`v<version>`) (durable artifact — Layer A)
-- GitHub Release title and body (durable artifact — Layer A)
-- CHANGELOG.md entries (durable artifact — Layer A)
-- All JSON values in `plugin.json` and `marketplace.json` (durable artifact — Layer A)
-- Bash command output captured into variables (`gh api` results, etc.) — machine-shaped data, never localized
+`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — the step-13 recap, AskUserQuestion prompts, error messages, narration — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: the release commit message (`chore: release v<version>`), the tag name (`v<version>`), the GitHub Release title and body, CHANGELOG.md entries, every JSON value in `plugin.json` / `marketplace.json`, and captured command output. The three-layer policy is defined once, under `lang` in `/gh-issue-driven:config`.
 
 ## Trust boundary
 
