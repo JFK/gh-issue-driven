@@ -88,12 +88,12 @@ graph LR
 
 | コマンド | フェーズ | 動作 |
 |---|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/objective` が使用） |
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | issue 取得、gate 1、推奨 model/effort の `Recommended:` 行の表示（advisory — 切り替えは `/model`）、ブランチ作成。複数 ID でバッチ対応。フラグ: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]`（無停止実行のため green/yellow HITL を抑制。主に `/objective` が使用） |
 | `/gh-issue-driven:ship [flags]` | 2 | gate 2、PR 作成、session 保存。事後レビューは opt-in (`review.provider`、デフォルト `none`)、設定時は `/ship` がレビューループを `/gh-issue-driven:review` へ **委譲**。フラグ: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]`（無停止実行のため green/yellow + レビュー起動 HITL を抑制。主に `/objective` が使用） |
 | `/gh-issue-driven:review [flags]` | 2 | **事後レビューループの正規の置き場所** — open 済み PR に対してレビューを実行(または再実行) (Copilot / `/code-review` / both、`review.provider` に従う)。re-entrant 設計。フラグ: `dry-run`, `force`, `--autonomous[=<level>]` |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | リリース儀式: リリースノート生成、manifest bump、`CHANGELOG.md` 更新、commit、annotated tag、push、GitHub Release 作成。フラグ: `dry-run`, `force`, `--notes-file=<path>` |
 | `/gh-issue-driven:propose <description> [flags]` | 0 | issue の下書きと作成: dedup チェック、品質レビュー、PM エンリッチメント、HITL 確認。フラグ: `dry-run`, `force` |
-| `/gh-issue-driven:objective <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、既定は Haiku ティア）→ `ship`（gate2 + PR + session-summary; PR後レビューは opt-in）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + レビュー起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: 事後レビューは `review.provider`（デフォルト `none`）または毎回指定の `no-copilot` フラグで opt-in、修正適用モデルは `review.model`（デフォルト `auto`）で right-size、inner-review のモデルは `goal.inner_review.model`（デフォルト `auto`）または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
+| `/gh-issue-driven:objective <milestone> [flags]` | G | **マイルストーンを PR まで駆動**: 各 open issue について `start` → 実装（TDD + 差分に対する軽量 inner-review パス、model-tier rubric の `auto` ティア）→ `ship`（gate2 + PR + session-summary; PR後レビューは opt-in）を回し、issue 間で resumable state に checkpoint。**red** verdict で HITL 停止、green/yellow は継続。委譲先 start/ship に `--autonomous=<goal.autonomy>` を渡すので、`red-only`/`unattended` では green/yellow + レビュー起動 prompt が抑制され、green/yellow パスは完全無停止で動きます (#74)。マージも default branch への push もしません。コスト制御: 事後レビューは `review.provider`（デフォルト `none`）または毎回指定の `no-copilot` フラグで opt-in、修正適用モデルは `review.model`（デフォルト `auto`）で right-size、inner-review のモデルは `goal.inner_review.model`（デフォルト `auto`）または `review-model=<tier>` で選択可能。フラグ: `dry-run`, `force`, `resume`, `no-copilot`, `review-model=<tier>` |
 | `/gh-issue-driven:doctor [verbose\|fix]` | — | read-only な環境健康診断 |
 | `/gh-issue-driven:config [show\|init\|path\|<key>]` | — | 実効設定の表示、テンプレート初期化 |
 | `/gh-issue-driven:status [<branch>\|all\|proposals]` | — | カレントブランチ(または全ブランチ/提案一覧)の state 表示 |
@@ -374,7 +374,7 @@ skill が見つからない場合の degrade：
 | `gate2.green_continue_requires_confirm` | `true` | green verdict 時に PR 作成前で HITL 確認。`false` でスキップ |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
 | `review.provider` | `none` | 事後レビューのプロバイダ — `none`（opt-in: `/ship` は PR を作って停止）、`copilot`、`code-review`、`both`。設定時は `/ship` がループを `/gh-issue-driven:review` へ委譲 |
-| `review.model` | `auto` | **レビュー修正を適用する**モデルを right-size（`auto`\|`haiku`\|`sonnet`\|`opus`）。`auto` はフィードバックの規模からティアを選択 |
+| `review.model` | `auto` | **レビュー修正を適用する**モデルを right-size（`auto`\|`haiku`\|`sonnet`\|`opus`\|`fable`、または完全なモデル id）。`auto` は `/gh-issue-driven:config` の共通 model-tier rubric で差分の規模からティアを選択 — `fable` には解決しない（opt-in 専用） |
 | `followups.memos_to_memory` | `true` | レビューのメモを Kagura Memory に保存し、`/ship` で変更ファイルの未解決メモを引く。`false` なら PR 本文に列挙する |
 | `followups.bug_milestone` | `next` | レビュー指摘から起票するバグ issue のマイルストーン — `next` または `current` |
 | `copilot.enabled` | _(deprecated)_ | もはや参照されません — 代わりに `review.provider` を使用 |

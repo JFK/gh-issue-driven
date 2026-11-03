@@ -654,6 +654,20 @@ The skill runs in-line (see the execution-model note under **Steps**): the plan 
 
 Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If the skill is not installed, log a loud warning `--with-plan requested but /superpowers:writing-plans not installed; continuing without a plan` and proceed to step 13 with `PLAN_OUTPUT=null`. Do not abort — the operator can re-run the planning skill later if needed.
 
+### 12b. Recommended model/effort profile (advisory)
+
+Classify the issue with the issue-side signals of the shared model-tier rubric (`/gh-issue-driven:config` → "Model-tier rubric (shared)") — never from a diff, there is none yet. If step 11a did not run (yellow, or red with `force`), first extract `GATE1_KEY_SUGGESTIONS` with step 17a's heuristic so the hardest test can read it (17a reuses the result). Evaluate in this order; the first match wins:
+
+1. `SIZE_HEURISTIC_SKIPPED=true` → **docs-only / trivial** (gate1 was skipped by policy; there is no gate1 output to weigh).
+2. **hardest** — `GATE1_VERDICT` is `yellow` or `red` AND a `GATE1_KEY_SUGGESTIONS` item names a design risk (architecture, data model, migration, security or scope), OR the issue body names paths in several commands / many files, OR it describes a long-horizon change. Not testable when `GATE1_VERDICT` is `unknown` — skip this rule.
+3. **risky / wide** — the body names a path or area matching `auth|secret|credential|migration|security`, OR more than ~10 repo paths.
+4. **docs-only / trivial** — single issue only (`IS_BATCH=false`): small by the `gate1.size_heuristic` definition (a `small_labels` label, or a body shorter than `small_body_max_chars`), whether or not that heuristic is enabled.
+5. **normal** — anything else; a batch that reaches this rule is normal.
+
+Map the class with the rubric's columns — `hardest` → `fable`/`high`, `risky / wide` → `opus`/`high`, `normal` → `opus`/`medium`, `docs-only / trivial` → `sonnet`/`low` — plus the subagent `auto` tier of the same row (`opus` / `opus` / `sonnet` / `haiku`; never `fable`). Set `RECOMMENDED="implement = <model>/<effort> · inner-review = <auto tier>"`.
+
+Advice only: a skill cannot change the main session's model or effort — the operator does, with `/model` — and the Agent tool's `effort` parameter is never set without an explicit operator request. Nothing is persisted; the step-16 recap and the step-18c Considerations print the line.
+
 ### 13. Create the feature branch
 
 Skip this step entirely if `DRY_RUN` is true.
@@ -863,6 +877,7 @@ Worktree <WORKTREE_PATH>
 </if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])[ — auto-accepted (autonomous: <level>)]   ← append the autonomous note when AUTONOMOUS and verdict is green/yellow
         — or — skipped (size-heuristic: <reason>)   ← when SIZE_HEURISTIC_SKIPPED
+Recommended: <RECOMMENDED>   ← advisory (step 12b); change the session model with /model
 <if WITH_PLAN=true AND PLAN_OUTPUT non-null:>
 Plan    <~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md>  (via /superpowers:writing-plans)
 </if>
@@ -886,6 +901,7 @@ Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo]) — batch coherence review
+Recommended: <RECOMMENDED>   ← advisory (step 12b); change the session model with /model
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
@@ -901,7 +917,7 @@ After the recap, print an **implementation guidance** section — the gate1 key 
 
 #### 17a. Extract gate1 key suggestions
 
-Reuse `GATE1_KEY_SUGGESTIONS` when step 11a already set it. Otherwise scan `GATE1_OUTPUT` for actionable guidance — bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" — and store up to **3** of the most concrete items as `GATE1_KEY_SUGGESTIONS`. If nothing is extractable, omit the checklist (do not invent guidance).
+Reuse `GATE1_KEY_SUGGESTIONS` when step 11a or 12b already set it. Otherwise scan `GATE1_OUTPUT` for actionable guidance — bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" — and store up to **3** of the most concrete items as `GATE1_KEY_SUGGESTIONS`. If nothing is extractable, omit the checklist (do not invent guidance).
 
 Format the extracted items as an indented bullet list:
 
@@ -985,11 +1001,12 @@ Record `CONTINUE_TARGET_LABEL` (short label for the option) and `CONTINUE_TARGET
 
 #### 18c. Print decision considerations
 
-Just before the AskUserQuestion, print a short **Considerations** block (≤ 6 bullets) from material already gathered — do **not** invent new analysis:
+Just before the AskUserQuestion, print a short **Considerations** block (≤ 7 bullets) from material already gathered — do **not** invent new analysis:
 
 Include only the bullets that apply:
 
 - **Gate1 verdict** and route (e.g. `green via /ask`, `yellow via /ask, escalated to /ceo`); for `unknown`, say that no design review ran.
+- **Recommended profile**: the step-12b line (`implement = <model>/<effort> · inner-review = <auto tier>`), advisory.
 - **Top gate1 suggestions**: the step-17a items in order; omit when there are none.
 - **Scope shape**: in batch mode, the number of bundled issues and that option 2 drafts per-issue plans; omit for a single issue.
 - **Skills available for the continue path**: only the detected ones among `/feature-dev:feature-dev`, `/superpowers:subagent-driven-development`, `/superpowers:executing-plans`, `/superpowers:test-driven-development` and `/code-review` — never mention undetected skills.
