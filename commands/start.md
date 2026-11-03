@@ -858,7 +858,8 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
   "gate2": null,
   "pr": null,
   "copilot": null,
-  "dry_run": <DRY_RUN>
+  "dry_run": <DRY_RUN>,
+  "no_memory": <NO_MEMORY>
 }
 ```
 
@@ -881,6 +882,7 @@ Schema notes:
 - **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). Serialized as a JSON string when populated, or the unquoted JSON literal `null` when `--worktree` was not used — matching the convention of other nullable fields like `gate1.escalated_to`. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
 - **`plan`**: set when `--with-plan` was used and the writing-plans skill produced output (step 14.5). Serialized as a JSON object `{path, generator, generated_at}` when populated, or the unquoted JSON literal `null` otherwise. Schema-additive — readers that do not yet know about `plan` ignore it without error.
 - **`open_memos`**: the step-7 `OPEN_MEMOS` (`[]` when none were found or recall was skipped). Read by `/ship` step 9a, which asks which ones the PR resolved. Schema-additive — absent is equivalent to `[]`.
+- **`no_memory`**: `true` when `/start` ran with `no-memory`. `/ship` steps 9a, 12b and 14 read it and skip every memory read and write — the flag itself is never otherwise visible to `/ship`. Schema-additive — absent is equivalent to `false`.
 - **`gate1.reviewer`** accepts a new sentinel value `"size-heuristic"` (added with `gate1.size_heuristic`) in addition to the existing `"ask"` / `"ceo"`. Readers should treat unknown reviewer values as opaque labels (display verbatim) rather than rejecting them — future heuristics or third-party gate1 implementations may introduce additional sentinels.
 - **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path` / `plan`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`; absent `plan` is equivalent to `null`.
 
