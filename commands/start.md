@@ -409,6 +409,8 @@ Otherwise:
 
 Capture results as a list of `{summary, score}` pairs.
 
+**Open memos in this area.** Then recall the review memos `/ship` step 12b saves (see `/gh-issue-driven:config` → `followups.*`) — two more `mcp__kagura-memory__recall` calls on the same context, `k=5` each, with `filters={"type": "tech-debt", "tags": ["status:open"]}` and `filters={"type": "needs-decision", "tags": ["status:open"]}`. Query: the issue title(s) + the first 240 chars of the body + every repo file path the issue body names. Capture `OPEN_MEMOS` as `{memory_id, type, summary}` — keep the full `memory_id` (never rebuild a UUID from the 8-char prefix the recap shows). The step-16 recap lists them so the implementer can fold small ones into this change; `/ship` step 9a asks which ones the PR resolved and marks them done.
+
 **On runtime error from `recall`** (the tool errored, network failed, or the resolved UUID turned out to be invalid for some unexpected reason):
 
 - If `memory.skip_on_failure` is `true` (default): log a single warning `memory recall failed; continuing without recall results — <error summary>` and proceed to step 8 with an empty result list. This is the "fail-safe, recall is best-effort" path.
@@ -852,6 +854,7 @@ Write `~/.claude/cache/gh-issue-driven/<branch>.json` using a temp file + atomic
     "ran_at": "<UTC ISO-8601>"
   },
   "plan": <plan block or null>,
+  "open_memos": [{"memory_id": "<uuid>", "type": "tech-debt|needs-decision", "summary": "<summary>"}],
   "gate2": null,
   "pr": null,
   "copilot": null,
@@ -877,6 +880,7 @@ Schema notes:
 - **`is_batch`**: `true` when `len(issues) > 1`, `false` otherwise. Allows downstream commands to branch on batch mode without counting the array.
 - **`worktree_path`**: set from step 13b when `--worktree` was used (either the path superpowers returned, or the `.worktrees/<branch>` fallback). Serialized as a JSON string when populated, or the unquoted JSON literal `null` when `--worktree` was not used — matching the convention of other nullable fields like `gate1.escalated_to`. Readers can use this to render the `cd` hint in `/gh-issue-driven:status` or post-mortem output without re-deriving the path.
 - **`plan`**: set when `--with-plan` was used and the writing-plans skill produced output (step 14.5). Serialized as a JSON object `{path, generator, generated_at}` when populated, or the unquoted JSON literal `null` otherwise. Schema-additive — readers that do not yet know about `plan` ignore it without error.
+- **`open_memos`**: the step-7 `OPEN_MEMOS` (`[]` when none were found or recall was skipped). Read by `/ship` step 9a, which asks which ones the PR resolved. Schema-additive — absent is equivalent to `[]`.
 - **`gate1.reviewer`** accepts a new sentinel value `"size-heuristic"` (added with `gate1.size_heuristic`) in addition to the existing `"ask"` / `"ceo"`. Readers should treat unknown reviewer values as opaque labels (display verbatim) rather than rejecting them — future heuristics or third-party gate1 implementations may introduce additional sentinels.
 - **v1 state files** (created before this change) remain valid — they have `issue_number`/`issue_title` but no `issues` array and no `worktree_path` / `plan`. Readers should check for `issues` first and fall back to the top-level aliases; absent `worktree_path` is equivalent to `null`; absent `plan` is equivalent to `null`.
 
@@ -918,6 +922,8 @@ Plan    <~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md>  (via /superpowe
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
+Memos   Open memos in this area: <n>          ← omit the line when OPEN_MEMOS is empty
+          <memory_id first 8>  <summary, first 100 chars>
 ```
 
 **Batch:**
@@ -936,6 +942,8 @@ Gate1   <verdict> (via /<reviewer>[, escalated to /ceo]) — batch coherence rev
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
+Memos   Open memos in this area: <n>          ← omit the line when OPEN_MEMOS is empty
+          <memory_id first 8>  <summary, first 100 chars>
 ```
 
 The `Worktree` line is printed verbatim from `WORKTREE_PATH` (set in step 13b). When `--worktree` is combined with `--branch=<override>`, `WORKTREE_PATH` already reflects the override (e.g. `.worktrees/<override>`), so the `cd` hint always matches reality. When `--worktree` is absent, both `WORKTREE_PATH` and this entire line block are omitted — the recap stays identical to the pre-`--worktree` output for non-worktree runs.

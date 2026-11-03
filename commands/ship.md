@@ -420,6 +420,26 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
   - **`AUTONOMOUS` is true AND `FORCE` is false** (reached when `--autonomous` is active without `force` — typically `red-only`; `attended` never reaches here because it leaves `AUTONOMOUS=false` and takes the interactive path below. Red must stop, but an unattended run cannot block on an interactive prompt) → **persist-and-return instead of aborting**: run step 10's state persist now (write `gate2.verdict=red`, `phase=gated`, the per-reviewer block, and the gate2 markdown), print the per-reviewer findings, then **return control cleanly (exit 0)** without creating the PR. This mirrors the binary-gate `fail` persist-before-exit behavior (step 7) and is the behavior `/objective` step 5c/5d depends on: it reads `gate2.verdict=red` from the state file and runs its in-loop red HITL rather than catching a non-verdict abort. Log `autonomous(<level>): gate2 red — verdict persisted, returning control (no PR created)`.
   - **Otherwise** (interactive, not autonomous, not force) → abort with the per-reviewer findings printed. (Unchanged legacy behavior — no PR created.)
 
+### 9a. Route review follow-ups (canonical — `review.md` step 6a and `objective.md` step 5b/5c reuse it)
+
+Runs whenever step 9 continues toward PR creation. Every observation this branch does **not** already fix — gate2 output (`ADVISOR_OUTS`, `AUDIT_OUT`, `CR_OUT`) plus anything the implementer noticed this session and left alone — is data (trust boundary) and lands in exactly one bucket. Read `followups.memos_to_memory` (default `true`) and `followups.bug_milestone` (default `"next"`) from the effective config.
+
+**Kagura Memory connection** (used here and in step 12b): the context `/start` step 2a resolves for this repo — resolve it the same way, without the step-2b prompt. No connection = context unresolved, the `kagura-memory` tools unavailable, or `NO_MEMORY` (as in step 14).
+
+1. **Open memos touching these files.** Skip when `followups.memos_to_memory` is `false` or there is no connection. Take the first 20 paths of `git diff --name-only "origin/$DEFAULT_BRANCH...HEAD"` and **invoke the `mcp__kagura-memory__list` tool** once with the connection's `context_id` and `filters={"type": ["tech-debt", "needs-decision"], "tags": ["file:<path1>", "file:<path2>", …], "tags_match": "any"}`. Keep the results tagged `status:open` (the ANY match cannot also require it), add the state's `open_memos` (the area memos `/start` step 7 surfaced), dedup by `memory_id`, and print them as `Open memos touching these files` (`<id first 8>  <summary>`). When the list is non-empty, ask via `AskUserQuestion` (multi-select, one option per memo, in batches when there are more memos than the tool's option limit) which of them this PR resolves; under `AUTONOMOUS` do not ask — step 12b lists them in the PR body for the operator to confirm. Keep the confirmed ones as `MEMOS_RESOLVED` with their full ids and tags.
+2. **Classify** each observation:
+
+   | Bucket | What goes in | What happens |
+   |---|---|---|
+   | `fix_now` | A regression this branch introduced, or a small pre-existing bug in the touched files (tests included, tens of lines) | Blocks the ship (item 3) |
+   | `bug` | A pre-existing bug with a concrete failure scenario (input → wrong result) that is not small or not in the touched files | GitHub issue **with a milestone** (step 12b) |
+   | `memo` | Refactors, duplicated helpers, nits, docs sweeps, dead code, hardening ideas → `tech-debt`; a question only the owner can answer → `needs-decision` | Kagura Memory (step 12b) — never a GitHub issue |
+
+   No concrete failure scenario → memo, not bug. A finding that is wrong or already handled is dropped with a one-line reason in the recap. Nothing becomes a `backlog` issue or an issue without a milestone.
+3. **`fix_now` blocks the ship** — not even `FORCE` skips it. Print each item (`file:line` + failure), persist `phase=gated` with `followups.fix_now` (step 10's write), and do not push or open the PR. Interactive → stop with `Fix these on this branch, re-run the repo's quality checks, commit, then re-run /gh-issue-driven:ship.`; `AUTONOMOUS` → return control (exit 0) so the caller fixes and re-invokes (`/objective` step 5c). `DRY_RUN` → print only.
+
+Otherwise keep the `bug` and `memo` items in-session; step 12b files them once the PR number exists (memo tags carry it), so a run that stops early leaves no half-filed follow-ups behind.
+
 ### 10. Persist gate2 state and markdown
 
 Assert restricted permissions on the cache directory (idempotent — mirrors `start.md` step 14, covers the ship-only flow where no prior `/start` ran):
@@ -447,8 +467,16 @@ Update the state file:
   "summary_path": "~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md",
   "ran_at": "<UTC ISO-8601>"
 },
+"followups": {
+  "fix_now": ["<file:line — failure>"],
+  "bugs": [{"title": "<title>", "issue": <number or null>, "milestone": "<title or null>"}],
+  "memos": [{"type": "tech-debt | needs-decision", "summary": "<summary>", "memory_id": "<uuid or null>"}],
+  "memos_resolved": ["<uuid>"]
+},
 "phase": "gated"
 ```
+
+`followups` holds step 9a's classification. `issue` / `memory_id` stay `null` until step 12b files the item, and remain `null` for anything listed in the PR body instead; `/gh-issue-driven:review` step 6a appends to the same block. Absent on pre-followups state files — readers treat it as empty.
 
 `reviewer` records which gate2 review path ran (step 4b): `"cascade"` (default — the binary-gate + advisor battery, including any auto-skip filtering) or `"code-reviewer-agent"` (the `--review=code-reviewer` path from step 6c, where the `feature-dev:code-reviewer` agent replaced the cascade). Absent/unknown values are treated as `"cascade"` by readers. When `reviewer="code-reviewer-agent"`, `advisor_verdicts` holds the single synthetic entry `{"code-reviewer-agent": "<green|red>"}` and `skipped_advisors` lists the bypassed configured advisors.
 
@@ -547,6 +575,8 @@ Full reviews are saved in the plugin cache:
 - ~/.claude/cache/gh-issue-driven/<branch-flat>.gate1.md
 - ~/.claude/cache/gh-issue-driven/<branch-flat>.gate2.md
 
+<## Follow-ups — inserted here by step 12b once the PR exists; omitted when empty>
+
 🤖 Generated via /gh-issue-driven:ship
 ```
 
@@ -584,6 +614,36 @@ gh pr create \
 
 Capture the PR number and URL into `PR_NUMBER` and `PR_URL`. Update the state file with `pr.number`, `pr.url`, `pr.created_at`, `phase=pr_open`.
 
+#### 12b. File the follow-ups (canonical — `review.md` step 6a reuses it)
+
+Files step 9a's `bug` and `memo` items and marks `MEMOS_RESOLVED`, filling in the state's `followups` block as it goes. Under `DRY_RUN`, print what would be filed and written instead.
+
+**Bugs → an issue with a milestone.** Target per `followups.bug_milestone` (an explicit user instruction in this run wins): `"next"` = the first open milestone after the issue's own (`gh issue view "$ISSUE_NUM" --json milestone`) in `gh api "repos/{owner}/{repo}/milestones?state=open&sort=due_on&direction=asc"` order (version-sorted by title when due dates are missing); `"current"` = the issue's own milestone. When that is unclear (the issue has no milestone, nothing comes after it, the order is ambiguous), ask the user which milestone via `AskUserQuestion` listing the open milestones; under `AUTONOMOUS` do not guess — list the bug under `Bugs (not filed — milestone unclear)`. Search open issues for the bug's key identifier first and reference a match instead of filing a duplicate. Otherwise write the body (failure scenario, `file:line`, `Found by <reviewer> while shipping #<ISSUE_NUM> (PR #<PR_NUMBER>)`) to a `mktemp` file and run `gh issue create --title "<title>" --body-file "$tmp" --milestone "<milestone>"` (plus `--label bug` when the repo has that label); take the number from the printed URL. Never `backlog`, never without a milestone.
+
+**Memos → Kagura Memory.** One memo per theme. When `followups.memos_to_memory` is `false` or there is no connection (step 9a), list them under `Memos (not filed)` in the PR body — never as issues. Otherwise **invoke `mcp__kagura-memory__remember_batch`** (`mcp__kagura-memory__remember` for a single memo) with the connection's `context_id`, `dedupe="check"`, and per memo:
+
+| Field | Value |
+|---|---|
+| `type` / `importance` | `tech-debt` / `0.45` — or `needs-decision` / `0.5` |
+| `summary` | 120–380 chars, starting `tech-debt (<area>): ` / `needs-decision (<area>): `, naming the key identifiers (functions, files, config keys) |
+| `content` | `Problem:` … `Proposal:` … `Source:` (reviewer, PR #<PR_NUMBER>) … `Related issues: #…` |
+| `context_summary` | `Pick up when the next change touches <files>.` — or, for `needs-decision`, `Owner decision; surface at milestone planning.` |
+| `tags` | the type, `status:open`, `source:review`, `issue:#<ISSUE_NUM>`, `pr:#<PR_NUMBER>`, `area:<label>`, and `file:<repo path>` for every file concerned (≤ 8) |
+
+A `duplicate_candidate` result means the memo already exists — record that candidate's id instead of writing a second one. A tool error moves the affected memos to `Memos (not filed)`.
+
+**Resolved memos.** For each `MEMOS_RESOLVED` entry, **invoke `mcp__kagura-memory__update_memory`** with the connection's `context_id`, its `memory_id`, and `tags` = its current tags minus `status:open`, plus `status:done` and `pr:#<PR_NUMBER>`. The tag list is replaced wholesale, so resend every tag (from the step-9a `list` result, or `mcp__kagura-memory__reference` for an `open_memos` entry). When the PR settles only part of a memo, write the remainder as a new memo with `supersedes=<old id>` instead.
+
+**PR body.** Insert the section at the placeholder above the `Generated via` line, re-run the step-12a secret scan on the updated body, then `gh pr edit "$PR_NUMBER" --body-file /tmp/gh-issue-driven.prbody`. Omit every empty line, and the whole section when all are empty:
+
+```
+## Follow-ups
+- Bugs filed: #<n> (<milestone>), …
+- Memos saved: <id first 8> tech-debt (<area>), …
+- Memos resolved: <id first 8>, …
+<Memos (not filed) / Bugs (not filed — milestone unclear) / Open memos touching these files (resolution not confirmed — AUTONOMOUS only): one "- <summary>" line each under a ### heading>
+```
+
 ### 13. Post-PR review (delegated)
 
 **If `REVIEW_PROVIDER == "none"`** (the default): print the PR URL and the line
@@ -606,6 +666,7 @@ Skip if `DRY_RUN` or `NO_MEMORY` was set during `start`.
 > - Gate1 verdict (from state file) and gate2 per-reviewer verdicts
 > - Review outcome from the `review.*` state block (provider, loop count, exit_reason) if `/gh-issue-driven:review` ran; otherwise note review was opt-in and not run
 > - 2–4 bullet points of key decisions and learnings the implementer made (extract from commit messages and the diff)
+> - Follow-ups from step 12b: bugs filed (issue numbers + milestones), memos saved (memory ids + summaries — already in memory, so the skill must not save them again), and the resolved memo ids
 >
 > If the skill is not installed, log `kagura-memory not installed; skipping session summary` and continue.
 
@@ -631,6 +692,9 @@ Review  <if REVIEW_PROVIDER == "none":>opt-in — run /gh-issue-driven:review
         <else (read from the review.* state block written by /gh-issue-driven:review):>
         provider: <review.provider>, exit_reason: <review.copilot.exit_reason>, loops: <review.total_loops_run>
 
+Follow-ups  bugs: #<n> (<milestone>) …   memos: <n> saved, <n> resolved, <n> not filed
+            — or — none
+
 Memory  session summary saved
         — or — kagura-memory not installed; skipped
 
@@ -653,6 +717,9 @@ Stop. Do not continue running anything else.
 | Diff is empty | Abort with `nothing to ship`. |
 | `git push` fails | Save state at `phase=gated`, instruct user to retry. |
 | `gh pr create` fails | Save state at `phase=gated`, print the gh error. |
+| Step 9a found a `fix_now` item | Stop before push, even with `force`; persist `followups.fix_now`. Fix, re-run the checks, commit, re-run `/ship`. Under `--autonomous`, return control to the caller. |
+| No Kagura Memory connection, or `followups.memos_to_memory=false` | Skip the step-9a memo lookup; list memos in the PR body under "Memos (not filed)". No issue is created for them. |
+| Bug milestone unclear | Ask the user; under `--autonomous`, list the bug in the PR body as not filed. |
 | `review.provider != none` (post-PR review requested) | Delegate to `/gh-issue-driven:review` (step 13). Its own Failure modes table covers the loop-specific cases (silent_no_op, HITL decline, tests-fail-mid-loop, max-loops, `/code-review` not installed). |
 | `resume` with no state file | Abort. Suggest running `/gh-issue-driven:ship` without resume first. |
 | `resume` with `phase < pr_open` | Abort. PR not yet created. Run ship without resume to create it. |

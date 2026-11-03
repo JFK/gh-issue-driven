@@ -145,6 +145,10 @@ When set, the configured skill is invoked alongside the 3 advisors as a 4th revi
 
 The default is `null` (no binary gate). Earlier versions defaulted to `/claude-c-suite:audit`, but that skill is the conformance script for the `claude-c-suite` plugin's own command files — it errors out on any other plugin and previously blocked every `/ship` invocation in non-claude-c-suite-plugin repos. The fix landed in v0.1.1 (#26).
 
+#### Review follow-ups — fix now, bug, or memo
+
+Anything a review raises (gate2, `/code-review`, Copilot, your own notes) that the PR does not fix goes into one of three buckets — never a `backlog` issue. **Fix now**: a regression this change introduced, or a small pre-existing bug in the touched files; it blocks `/ship` until fixed. **Bug**: a pre-existing bug with a concrete failure scenario that is not small or not nearby; it becomes an issue in the next milestone (`followups.bug_milestone`). **Memo**: refactors, nits, docs sweeps, dead code, hardening ideas (and owner-only questions) are saved to Kagura Memory as `tech-debt` / `needs-decision` memories tagged with the files they concern — or listed in the PR body when no Kagura Memory connection is available. `/start` recalls the open memos in the issue's area, and `/ship` looks up the open memos tagged with the changed files and asks which ones the PR resolves, marking those `status:done`. `/propose` offers to promote a matching memo instead of filing a duplicate.
+
 ### Phase 3 — `/gh-issue-driven:tag` (release ceremony)
 
 Runs **after** the PR has been merged into the default branch and the milestone is ready. The ceremony is deliberately structured so that **all checks run before any file mutations** — if anything fails, the working tree stays clean:
@@ -373,6 +377,8 @@ Key options:
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
 | `review.provider` | `none` | Post-PR review provider — `none` (opt-in: `/ship` creates the PR and stops), `copilot`, `code-review`, or `both`. When set, `/ship` delegates the loop to `/gh-issue-driven:review`. |
 | `review.model` | `auto` | Right-sizes the model that **applies review fixes** (`auto`\|`haiku`\|`sonnet`\|`opus`). `auto` picks a tier from the feedback's scope. |
+| `followups.memos_to_memory` | `true` | Save review memos to Kagura Memory and look up open memos for the changed files at `/ship`. `false` lists memos in the PR body instead. |
+| `followups.bug_milestone` | `next` | Milestone for bug issues filed from review findings — `next` or `current`. |
 | `copilot.enabled` | _(deprecated)_ | No longer consulted — use `review.provider` instead. |
 | `copilot.max_loops` | `5` | Maximum review iterations. |
 | `copilot.poll_interval_sec` | `60` | Time between `gh pr view` polls. |
