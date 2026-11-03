@@ -89,7 +89,7 @@ The whole flow is bracketed by `kagura-memory` `session-start` and `session-summ
 
 | Command | Phase | What it does |
 |---|---|---|
-| `/gh-issue-driven:start <issue...> [flags]` | 1 | Fetch issue(s), run gate 1, create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]` (suppress green/yellow HITL for unattended runs; used by `/objective`). |
+| `/gh-issue-driven:start <issue...> [flags]` | 1 | Fetch issue(s), run gate 1, print an advisory `Recommended:` model/effort profile (change it with `/model`), create branch. Pass multiple IDs to batch. Flags: `dry-run`, `force`, `no-memory`, `--branch=<name>`, `--autonomous[=<level>]` (suppress green/yellow HITL for unattended runs; used by `/objective`). |
 | `/gh-issue-driven:ship [flags]` | 2 | Run gate 2, create PR, save session memory. Post-PR review is opt-in (`review.provider`, default `none`); when configured, `/ship` **delegates** the review loop to `/gh-issue-driven:review`. Flags: `dry-run`, `force`, `no-copilot`, `draft`, `auto-skip`, `--review=code-reviewer`, `--autonomous[=<level>]` (suppress green/yellow + review-invocation HITL for unattended runs; used by `/objective`). |
 | `/gh-issue-driven:review [flags]` | 2 | **Canonical home of the post-PR review loop** — drive (or re-run) review on an already-open PR (Copilot, `/code-review`, or both, per `review.provider`). Re-entrant by design. Flags: `dry-run`, `force`, `--autonomous[=<level>]`. |
 | `/gh-issue-driven:tag <version> [flags]` | 3 | Release ceremony: compose release notes, bump manifests, update `CHANGELOG.md`, commit, annotated-tag, push, create GitHub Release. Flags: `dry-run`, `force`, `--notes-file=<path>`. |
@@ -376,7 +376,7 @@ Key options:
 | `gate2.green_continue_requires_confirm` | `true` | Pause for HITL confirmation on green gate2 verdict before PR creation. Set to `false` to continue silently. |
 | `gate2.advisors` | `[cso, qa-lead, cto]` | Run in parallel; aggregated. |
 | `review.provider` | `none` | Post-PR review provider — `none` (opt-in: `/ship` creates the PR and stops), `copilot`, `code-review`, or `both`. When set, `/ship` delegates the loop to `/gh-issue-driven:review`. |
-| `review.model` | `auto` | Right-sizes the model that **applies review fixes** (`auto`\|`haiku`\|`sonnet`\|`opus`). `auto` picks a tier from the feedback's scope. |
+| `review.model` | `auto` | Right-sizes the model that **applies review fixes** (`auto`\|`haiku`\|`sonnet`\|`opus`\|`fable`, or a full model id). `auto` picks a tier from the diff's scope through the shared model-tier rubric in `/gh-issue-driven:config` — never `fable`, which is opt-in only. |
 | `followups.memos_to_memory` | `true` | Save review memos to Kagura Memory and look up open memos for the changed files at `/ship`. `false` lists memos in the PR body instead. |
 | `followups.bug_milestone` | `next` | Milestone for bug issues filed from review findings — `next` or `current`. |
 | `copilot.enabled` | _(deprecated)_ | No longer consulted — use `review.provider` instead. |

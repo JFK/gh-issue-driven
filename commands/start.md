@@ -654,6 +654,19 @@ The skill runs in-line (see the execution-model note under **Steps**): the plan 
 
 Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If the skill is not installed, log a loud warning `--with-plan requested but /superpowers:writing-plans not installed; continuing without a plan` and proceed to step 13 with `PLAN_OUTPUT=null`. Do not abort — the operator can re-run the planning skill later if needed.
 
+### 12b. Recommended model/effort profile (advisory)
+
+Classify the issue with the issue-side signals of the shared model-tier rubric (`/gh-issue-driven:config` → "Model-tier rubric (shared)") — never from a diff, there is none yet. First match wins:
+
+- **hardest** — `GATE1_VERDICT` is `yellow` or `red` AND the gate1 output names a design risk (a `GATE1_KEY_SUGGESTIONS` item about architecture, data model, migration, security or scope), OR the issue body names paths in several commands / many files, OR it describes a long-horizon change. Not testable when `GATE1_VERDICT` is `unknown` — fall through.
+- **risky / wide** — the body names a path or area matching `auth|secret|credential|migration|security`, OR more than ~10 repo paths.
+- **docs-only / trivial** — the issue is small by the `gate1.size_heuristic` definition (a `small_labels` label, or a body shorter than `small_body_max_chars`), whether or not that heuristic is enabled; `SIZE_HEURISTIC_SKIPPED=true` always lands here.
+- **normal** — anything else. A batch (`IS_BATCH`) is at least normal.
+
+Map the class with the rubric's columns — `hardest` → `fable`/`high`, `risky / wide` → `opus`/`high`, `normal` → `opus`/`medium`, `docs-only / trivial` → `sonnet`/`low` — plus the subagent `auto` tier of the same row (`opus` / `opus` / `sonnet` / `haiku`; never `fable`). Set `RECOMMENDED="implement = <model>/<effort> · inner-review = <auto tier>"`.
+
+Advice only: a skill cannot change the main session's model or effort — the operator does, with `/model` — and the Agent tool's `effort` parameter is never set without an explicit operator request. Nothing is persisted; the step-16 recap and the step-18c Considerations print the line.
+
 ### 13. Create the feature branch
 
 Skip this step entirely if `DRY_RUN` is true.
@@ -863,6 +876,7 @@ Worktree <WORKTREE_PATH>
 </if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo])[ — auto-accepted (autonomous: <level>)]   ← append the autonomous note when AUTONOMOUS and verdict is green/yellow
         — or — skipped (size-heuristic: <reason>)   ← when SIZE_HEURISTIC_SKIPPED
+Recommended: <RECOMMENDED>   ← advisory (step 12b); change the session model with /model
 <if WITH_PLAN=true AND PLAN_OUTPUT non-null:>
 Plan    <~/.claude/cache/gh-issue-driven/<branch-flat>.plan.md>  (via /superpowers:writing-plans)
 </if>
@@ -886,6 +900,7 @@ Worktree <WORKTREE_PATH>
         → cd <WORKTREE_PATH> to work on this branch
 </if>
 Gate1   <verdict> (via /<reviewer>[, escalated to /ceo]) — batch coherence review
+Recommended: <RECOMMENDED>   ← advisory (step 12b); change the session model with /model
 Memory  <k> related contexts found  (top: "<top summary>" score <score>)
         — or — kagura-memory not installed; skipped
         — or — recall returned no results
@@ -990,6 +1005,7 @@ Just before the AskUserQuestion, print a short **Considerations** block (≤ 6 b
 Include only the bullets that apply:
 
 - **Gate1 verdict** and route (e.g. `green via /ask`, `yellow via /ask, escalated to /ceo`); for `unknown`, say that no design review ran.
+- **Recommended profile**: the step-12b line (`implement = <model>/<effort> · inner-review = <auto tier>`), advisory.
 - **Top gate1 suggestions**: the step-17a items in order; omit when there are none.
 - **Scope shape**: in batch mode, the number of bundled issues and that option 2 drafts per-issue plans; omit for a single issue.
 - **Skills available for the continue path**: only the detected ones among `/feature-dev:feature-dev`, `/superpowers:subagent-driven-development`, `/superpowers:executing-plans`, `/superpowers:test-driven-development` and `/code-review` — never mention undetected skills.

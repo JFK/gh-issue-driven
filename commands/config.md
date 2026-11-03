@@ -63,19 +63,22 @@ Selects which post-PR reviewer to use in review.md step 5 and the standalone `/g
 
 ### Model-tier rubric (shared)
 
-The one scope → tier rubric behind every `auto` model setting — `review.model` (the fix-application subagent in `/gh-issue-driven:review`), `goal.inner_review.model` (the inner review in `/gh-issue-driven:objective`) — and the effort of the `/code-review` fallback. A fixed alias (`haiku` / `sonnet` / `opus` / a full model id) is used verbatim.
+The one scope → model/effort rubric behind every `auto` model setting — `review.model` (the fix-application subagent in `/gh-issue-driven:review`), `goal.inner_review.model` (the inner review in `/gh-issue-driven:objective`) — the effort of the `/code-review` fallback, and the advisory `Recommended:` line `/start` prints after gate1. Tier aliases are `haiku` / `sonnet` / `opus` / `fable` (Claude Fable 5.1, `claude-fable-5-1`) or a full model id; a fixed alias is used verbatim. **`auto` never resolves to `fable`**: on a subscription plan it drains the usage limit much faster than Opus and runs longer turns (and may not be on every plan), and the subagent reviews are cheap filters — gate2 stays the authoritative review. Fable is opt-in only; the rubric names it for the hardest class, and only as the recommendation.
 
-| Scope class | Signals (from the diff) | `auto` tier | `/code-review` effort (fallback) |
-|---|---|---|---|
-| docs-only / trivial | every path is `*.md` or under `docs/`, OR fewer than ~20 changed lines | `haiku` | `low` |
-| normal | anything else | `sonnet` | `medium` |
-| risky / wide | a path matching `auth\|secret\|credential\|migration\|security`, OR more than ~10 files, OR more than ~400 changed lines | `opus` | `high` (`max` only when the operator asks for it) |
+| Scope class | Signals — diff (subagents) | Signals — issue (`/start`) | Subagent `auto` tier | Effort | Recommended session model |
+|---|---|---|---|---|---|
+| docs-only / trivial | every changed path matches a `gate2.diff_scope_skip.docs_only_patterns` regex (the same docs-only notion gate2 uses — `commands/*.md` never qualifies), OR fewer than ~20 changed lines | small by the `gate1.size_heuristic` definition (a `small_labels` label, or a body shorter than `small_body_max_chars`), whether or not that heuristic is enabled | `haiku` | `low` | `sonnet` |
+| normal | anything else | anything else (a batch is at least normal) | `sonnet` | `medium` | `opus` |
+| risky / wide | a path matching `auth\|secret\|credential\|migration\|security`, OR more than ~10 files, OR more than ~400 changed lines | the body names a path or area matching that pattern, OR more than ~10 repo paths | `opus` | `high` | `opus` |
+| hardest | — (never derived from a diff) | gate1 `yellow` or `red` with a design-risk finding, OR a long-horizon change spanning several commands / many files | `opus` (never `fable`) | `high` | `fable` |
 
-`review.md` step 5b carries the executable form of the signals (evaluated on `gh pr diff`) — keep it in sync with this table; `objective.md` step 5b carries only the scope → tier line and classifies the working-tree diff by these same signals. The docs-only signal here is the fix-subagent's existing heuristic and is deliberately *not* `gate2.diff_scope_skip.docs_only_patterns` (which excludes `commands/*.md`); unifying the two is part of #102.
+- **Effort** is one column for two readers: the `/code-review` fallback in `objective.md` 5b uses it directly; the `/start` recommendation pairs it with the session model. `max` is never chosen by the rubric — only when the operator asks for it. Subagents dispatched through the Agent tool get no `effort` parameter unless the operator explicitly asks.
+- **Recommended session model** is advisory: a skill cannot switch the main session's model or effort (the operator does, with `/model`), so `/start` step 12b only prints `Recommended: implement = <model>/<effort> · inner-review = <auto tier>`.
+- `review.md` step 5b carries the executable form of the diff signals (on `gh pr diff`); `objective.md` step 5b classifies the working-tree diff by the same signals and carries the scope → tier line; `start.md` step 12b classifies by the issue signals. `tests/tier-sync-check.sh` asserts that the thresholds and tier names of this table still appear in `review.md` and `objective.md`.
 
 ### `review.model`
 
-Default `"auto"`. One of `auto | haiku | sonnet | opus` (or a full model id). Tier for the **fix-application subagent** that `/gh-issue-driven:review` dispatches to apply review findings. `auto` right-sizes by the PR's diff scope/risk through the shared rubric above. Does not affect provider selection, the gate2 cascade, or `/code-review`.
+Default `"auto"`. One of `auto | haiku | sonnet | opus | fable` (or a full model id). Tier for the **fix-application subagent** that `/gh-issue-driven:review` dispatches to apply review findings. `auto` right-sizes by the PR's diff scope/risk through the shared rubric above (never to `fable`). Does not affect provider selection, the gate2 cascade, or `/code-review`.
 
 **Interaction with the `no-copilot` flag**: The `no-copilot` flag on `/gh-issue-driven:ship` overrides `review.provider` to `"none"` for that invocation only. It does not modify the config file.
 
@@ -180,14 +183,14 @@ Tuning for `/gh-issue-driven:objective`, the autonomous milestone-completion loo
 | `autonomy` | `"red-only"` | Verdict-gating policy. `"red-only"`: treat `green`/`yellow` as continue (yellow auto-accepted and logged), gate for HITL **only** on a `red` gate1/gate2 verdict. `"unattended"`: red is also auto-accepted (the `force` flag forces this for one run); safety caps are the only backstop. `"attended"`: gate on green/yellow too. `/objective` forwards this value verbatim to the delegated `/start` and `/ship` as `--autonomous=<level>` (#74): under `red-only`/`unattended` they suppress their own green/yellow + Copilot-invocation prompts (and on `red` without `force` persist the verdict and return control rather than aborting); under `attended` suppression is disabled and the sub-commands' own prompts fire as normal. |
 | `max_issues_per_run` | `20` | Runaway backstop. Issues beyond the cap are deferred (logged loudly, never silently dropped) — re-run with `resume` to continue. |
 | `inner_review.enabled` | `true` | Whether step 5b runs a **cheap inner-review pass** over the working-tree diff before handing off to `/ship`'s heavy gate2 cascade. When `false`, 5b falls back to `/code-review` at a size-scaled effort level (the pre-#76 behavior). |
-| `inner_review.model` | `"auto"` | Model tier for the inner-review subagent. `auto` (default) right-sizes by working-tree diff scope through the shared model-tier rubric (above `review.model`); a fixed alias (`haiku`/`sonnet`/`opus`/id) is used verbatim. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade. Implementation runs on the normal session model regardless. |
+| `inner_review.model` | `"auto"` | Model tier for the inner-review subagent. `auto` (default) right-sizes by working-tree diff scope through the shared model-tier rubric (above `review.model`; `auto` never picks `fable`); a fixed alias (`haiku`/`sonnet`/`opus`/`fable`/id) is used verbatim. The cheap tier keeps the *inner* loop inexpensive; the authoritative review stays the gate2 cascade. Implementation runs on the normal session model regardless. |
 | `inner_review.max_rounds` | `2` | Cap on the cheap fix-and-recheck loop (the inner review is a fast filter, not the authoritative gate). Findings beyond the cap are left for gate2 to catch. |
 
 The autonomy level governs **verdict** gating only. The milestone-missing precondition and any non-verdict abort from a delegated command always stop the run regardless of level. `/objective` **delegates the PR + Copilot review loop to `/ship`** (it does not run its own loop); that loop uses `copilot.*` (poll interval, max wait, silent-no-op threshold, `max_loops`) and `review.provider` for reviewer selection, exactly as a direct `/ship` run does.
 
 **Controlling review cost.** Because `/objective` fans the review machinery across *every* open issue in a milestone, the Copilot loop is the dominant cost. Two independent levers, neither adding a new `goal.*` key:
 - **PR review (the expensive async Copilot loop)** — optional via the inherited `review.provider`: set it to `"none"` (no automated PR review) or `"code-review"` (single-shot, no polling loop) for a persistent, cheaper default; or pass the per-run `no-copilot` flag to `/gh-issue-driven:objective`, which forwards to `/ship` as `no-copilot` for that run only. With Copilot off, each issue's PR is opened and left for manual review (recorded `needs_human`).
-- **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"auto"`) right-sizes by diff scope; the `review-model=<tier>` flag re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
+- **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"auto"`) right-sizes by diff scope; the `review-model=<tier>` flag (`haiku` / `sonnet` / `opus` / `fable` / a model id) re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
 
 ### `followups.*`
 
