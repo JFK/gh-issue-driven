@@ -3,11 +3,11 @@
 # columns: file<TAB>lines<TAB>bytes<TAB>~tokens   (regenerate: bash tests/token-baseline.sh --update)
 config.md	411	36043	9010
 doctor.md	463	27382	6845
-objective.md	252	33987	8496
+objective.md	252	34282	8570
 propose.md	555	26353	6588
-review.md	550	35494	8873
+review.md	550	35617	8904
 ship.md	724	58436	14609
-start.md	1068	71204	17801
+start.md	1069	71502	17875
 status.md	184	11730	2932
 tag.md	433	19594	4898
-TOTAL	4640	320223	80052
+TOTAL	4641	320939	80231

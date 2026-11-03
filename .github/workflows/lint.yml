@@ -64,7 +64,7 @@ jobs:
       - name: Verify exit_reason and hitl_decision enums stay in sync across config.md / ship.md / review.md
         run: bash tests/enum-sync-check.sh
 
-      - name: Verify the model-tier rubric stays in sync across config.md / review.md / objective.md
+      - name: Verify the model-tier rubric stays in sync across config.md / review.md / objective.md / start.md
         run: bash tests/tier-sync-check.sh
 
       - name: Self-test the command-file token-baseline census tool

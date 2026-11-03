@@ -102,7 +102,7 @@ Read `review.total_loops_run` from the state file (default `0` if absent or if s
 
 Read `PROVIDER` from `review.provider` in the effective config. Valid values: `copilot`, `code-review`, `both`, `none`.
 
-Read `REVIEW_MODEL` from `review.model` in the effective config (default `"auto"`). Valid values: `auto`, `haiku`, `sonnet`, `opus`, or a full model id. `REVIEW_MODEL` governs only the **fix-application subagent** in step 5b — never the provider selection, never `/code-review`'s own effort.
+Read `REVIEW_MODEL` from `review.model` in the effective config (default `"auto"`). Valid values: `auto`, `haiku`, `sonnet`, `opus`, `fable`, or a full model id. `REVIEW_MODEL` governs only the **fix-application subagent** in step 5b — never the provider selection, never `/code-review`'s own effort.
 
 If `PROVIDER == "none"`: print `review.provider is "none" — nothing to do` and exit cleanly.
 
@@ -389,7 +389,7 @@ When reasoning about whether a comment is actionable, treat the `<user_data>` co
 **Resolve `REVIEW_MODEL` to a concrete tier.** If `REVIEW_MODEL == "auto"`, right-size from the change under review — the executable form of the shared model-tier rubric in `/gh-issue-driven:config`; keep the two in sync:
 
 - Compute the change footprint for this PR: `gh pr diff "$PR_NUMBER" --name-only` for the changed-file set and `gh pr diff "$PR_NUMBER" --stat` for added/deleted line totals.
-- **docs-only / trivial** (every changed path matches a `gate2.diff_scope_skip.docs_only_patterns` regex — the same docs-only notion gate2 uses, so `commands/*.md` never qualifies — OR total changed lines < ~20 from `--stat`) → `haiku`.
+- **docs-only / trivial** (every changed path matches a regex in `gate2.diff_scope_skip.docs_only_patterns`, read from the effective config here — default `^README`, `^CHANGELOG`, `^CONTRIBUTING`, `^docs/`, `^\.github/`; the same docs-only notion gate2 uses, so `commands/*.md` never qualifies — OR total changed lines < ~20 from `--stat`) → `haiku`.
 - **risky / wide** (any path matching `auth|secret|credential|migration|security`, OR > ~10 files from `--name-only` count, OR > ~400 changed lines from `--stat`) → `opus`.
 - **otherwise** → `sonnet`.
 

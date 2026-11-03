@@ -656,12 +656,13 @@ Capture the produced plan content as `PLAN_OUTPUT` (the verbatim markdown). If t
 
 ### 12b. Recommended model/effort profile (advisory)
 
-Classify the issue with the issue-side signals of the shared model-tier rubric (`/gh-issue-driven:config` → "Model-tier rubric (shared)") — never from a diff, there is none yet. First match wins:
+Classify the issue with the issue-side signals of the shared model-tier rubric (`/gh-issue-driven:config` → "Model-tier rubric (shared)") — never from a diff, there is none yet. If step 11a did not run (yellow, or red with `force`), first extract `GATE1_KEY_SUGGESTIONS` with step 17a's heuristic so the hardest test can read it (17a reuses the result). Evaluate in this order; the first match wins:
 
-- **hardest** — `GATE1_VERDICT` is `yellow` or `red` AND the gate1 output names a design risk (a `GATE1_KEY_SUGGESTIONS` item about architecture, data model, migration, security or scope), OR the issue body names paths in several commands / many files, OR it describes a long-horizon change. Not testable when `GATE1_VERDICT` is `unknown` — fall through.
-- **risky / wide** — the body names a path or area matching `auth|secret|credential|migration|security`, OR more than ~10 repo paths.
-- **docs-only / trivial** — the issue is small by the `gate1.size_heuristic` definition (a `small_labels` label, or a body shorter than `small_body_max_chars`), whether or not that heuristic is enabled; `SIZE_HEURISTIC_SKIPPED=true` always lands here.
-- **normal** — anything else. A batch (`IS_BATCH`) is at least normal.
+1. `SIZE_HEURISTIC_SKIPPED=true` → **docs-only / trivial** (gate1 was skipped by policy; there is no gate1 output to weigh).
+2. **hardest** — `GATE1_VERDICT` is `yellow` or `red` AND a `GATE1_KEY_SUGGESTIONS` item names a design risk (architecture, data model, migration, security or scope), OR the issue body names paths in several commands / many files, OR it describes a long-horizon change. Not testable when `GATE1_VERDICT` is `unknown` — skip this rule.
+3. **risky / wide** — the body names a path or area matching `auth|secret|credential|migration|security`, OR more than ~10 repo paths.
+4. **docs-only / trivial** — single issue only (`IS_BATCH=false`): small by the `gate1.size_heuristic` definition (a `small_labels` label, or a body shorter than `small_body_max_chars`), whether or not that heuristic is enabled.
+5. **normal** — anything else; a batch that reaches this rule is normal.
 
 Map the class with the rubric's columns — `hardest` → `fable`/`high`, `risky / wide` → `opus`/`high`, `normal` → `opus`/`medium`, `docs-only / trivial` → `sonnet`/`low` — plus the subagent `auto` tier of the same row (`opus` / `opus` / `sonnet` / `haiku`; never `fable`). Set `RECOMMENDED="implement = <model>/<effort> · inner-review = <auto tier>"`.
 
@@ -916,7 +917,7 @@ After the recap, print an **implementation guidance** section — the gate1 key 
 
 #### 17a. Extract gate1 key suggestions
 
-Reuse `GATE1_KEY_SUGGESTIONS` when step 11a already set it. Otherwise scan `GATE1_OUTPUT` for actionable guidance — bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" — and store up to **3** of the most concrete items as `GATE1_KEY_SUGGESTIONS`. If nothing is extractable, omit the checklist (do not invent guidance).
+Reuse `GATE1_KEY_SUGGESTIONS` when step 11a or 12b already set it. Otherwise scan `GATE1_OUTPUT` for actionable guidance — bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" — and store up to **3** of the most concrete items as `GATE1_KEY_SUGGESTIONS`. If nothing is extractable, omit the checklist (do not invent guidance).
 
 Format the extracted items as an indented bullet list:
 
@@ -1000,7 +1001,7 @@ Record `CONTINUE_TARGET_LABEL` (short label for the option) and `CONTINUE_TARGET
 
 #### 18c. Print decision considerations
 
-Just before the AskUserQuestion, print a short **Considerations** block (≤ 6 bullets) from material already gathered — do **not** invent new analysis:
+Just before the AskUserQuestion, print a short **Considerations** block (≤ 7 bullets) from material already gathered — do **not** invent new analysis:
 
 Include only the bullets that apply:
 
