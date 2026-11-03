@@ -8,7 +8,7 @@ arguments:
 
 ## Output language
 
-`lang` is read just-in-time from `~/.claude/gh-issue-driven-config.json` (default `"en"`; separate from the step-13 configuration health check, like the Copilot setup section's read of `copilot.skip_setup_prompt`). When `lang != "en"`, the diagnostic prose is localized — check descriptions, fail reasons, the text around `try:` hints, and the Copilot review setup section's AskUserQuestion options — while the ✅/⚠️/❌ labels stay the literal emoji. Always English: file paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`), the `try:` commands themselves (e.g. `apt install jq`, `/plugin install ...`), the cache file's JSON content and the state schema field names.
+`lang` comes from the effective config (default `"en"` — also when the file is missing or unparseable), read just-in-time here, separately from the step-13 configuration health check (the same pattern as the Copilot setup section's read of `copilot.skip_setup_prompt`). When `lang != "en"`, the diagnostic prose is localized — check descriptions, fail reasons, the text around `try:` hints, and the Copilot review setup section's AskUserQuestion options — while the ✅/⚠️/❌ labels stay the literal emoji. Always English: file paths, environment variable names, command names (`gh`, `git`, `jq`, `python3`), the `try:` commands themselves (e.g. `apt install jq`, `/plugin install ...`), the cache file's JSON content and the state schema field names.
 
 ## Trust boundary
 

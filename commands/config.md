@@ -24,7 +24,7 @@ The 3-layer policy governs what gets localized:
 
 When `lang != "en"`, gate prompts sent to reviewer skills (`/claude-c-suite:ask`, `/audit`, etc.) get a language hint appended that includes the raw `lang` value for determinism, with a best-effort human-readable name (e.g. `Please respond in Japanese (日本語) (lang: ja).`). The raw value ensures correctness even for BCP-47 tags like `zh-Hans` or `pt-BR` where the human-readable name may be ambiguous. Reviewer responses then naturally produce localized review prose while still emitting the English-strict verdict tokens (the parser contract is documented in the prompt itself, so reviewers know to keep verdict tokens English). This is best-effort — reviewer skills are separate plugins and may occasionally respond in English regardless of the hint.
 
-Each command file opens with a short, self-sufficient summary of this policy (its own durable artifacts, parser tokens and prompt hint); this section is the canonical definition — change the policy here first.
+Every other command file opens with a short, self-sufficient summary of this policy (its own durable artifacts, parser tokens and prompt hint); this section is the canonical definition — change the policy here first.
 
 ### `gate2.binary_gate`
 
@@ -69,9 +69,9 @@ The one scope → tier rubric behind every `auto` model setting — `review.mode
 |---|---|---|---|
 | docs-only / trivial | every path is `*.md` or under `docs/`, OR fewer than ~20 changed lines | `haiku` | `low` |
 | normal | anything else | `sonnet` | `medium` |
-| risky / wide | a path matching `auth\|secret\|credential\|migration\|security`, OR more than ~10 files, OR more than ~400 changed lines | `opus` | `high` / `max` |
+| risky / wide | a path matching `auth\|secret\|credential\|migration\|security`, OR more than ~10 files, OR more than ~400 changed lines | `opus` | `high` (`max` only when the operator asks for it) |
 
-`review.md` step 5b evaluates the signals on `gh pr diff`; `objective.md` step 5b on the working-tree diff. Each carries the one-line executable form of this table — keep them in sync with it.
+`review.md` step 5b carries the executable form of the signals (evaluated on `gh pr diff`) — keep it in sync with this table; `objective.md` step 5b carries only the scope → tier line and classifies the working-tree diff by these same signals. The docs-only signal here is the fix-subagent's existing heuristic and is deliberately *not* `gate2.diff_scope_skip.docs_only_patterns` (which excludes `commands/*.md`); unifying the two is part of #102.
 
 ### `review.model`
 

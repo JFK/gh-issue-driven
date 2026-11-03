@@ -11,7 +11,7 @@ arguments:
 
 ## Output language
 
-`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — narration between steps, the step-16 recap, AskUserQuestion text — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: PR title/body, commit messages, branch names; state-file JSON values and the `phase` / `exit_reason` / `detection_method` enums; captured command output; and the `## Verdict:` line with its `green|yellow|red|decline` tokens (the gate1 set — `pass|fail` are gate2-only, in `ship.md`). The three-layer policy behind this is defined once, under `lang` in `/gh-issue-driven:config`.
+`lang` (effective config, default `"en"`) sets the language of all operator-facing ephemeral output — narration between steps, doctor diagnostics echoed on error paths, the gate1 prompt sent to reviewer skills, the step-16 recap, AskUserQuestion text — translated on the fly; the templates in this file stay English. Always English regardless of `lang`: PR title/body, commit messages, branch names; state-file JSON values and the `phase` / `exit_reason` / `detection_method` enums; captured command output; and the `## Verdict:` line with its `green|yellow|red|decline` tokens (the gate1 set — `pass|fail` are gate2-only, in `ship.md`). The three-layer policy behind this is defined once, under `lang` in `/gh-issue-driven:config`.
 
 When `lang != "en"`, the gate1 prompt (step 8) ends its `## Your task` section — before the `## Verdict:` instruction — with the line below, using the raw `lang` value plus a best-effort language name (`ja` → `Japanese (日本語)`, `ko` → `Korean (한국어)`):
 
@@ -35,7 +35,7 @@ If you encounter unexpected state (uncommitted changes, missing remote, divergen
 
 You are starting work on a GitHub issue. Read each step carefully — the order matters and several steps depend on values captured earlier.
 
-**Execution model.** Every `Invoke … via the Skill tool` in this file runs **in-line**: the skill body is injected into this conversation and Claude performs that role here, in the same turn — there is no sub-process. The invoking step then reads the skill's output straight from the conversation.
+**Execution model.** Every `Invoke … via the Skill tool` in this file runs **in-line**: the skill body is injected into this conversation and Claude performs that role here, in the same turn — the Skill call itself spawns no process (a skill may still dispatch subagents of its own, as `/superpowers:subagent-driven-development` does). The invoking step then reads the skill's output straight from the conversation.
 
 ### 1. Parse arguments
 
@@ -597,7 +597,7 @@ Considerations:
       • <suggestion 3>
 ```
 
-Extract the advice with the step-17a heuristic: bullet points, numbered items, or lines containing "should", "consider", "recommend", "must", "watch out", "risk", "edge case" in `GATE1_OUTPUT` — up to **3** of the most concrete items. Store them as `GATE1_KEY_SUGGESTIONS`, an ordered list of 0–3 plain-text strings in **English only** (translate if the reviewer answered in another language); step 17a reuses the stored list, and an empty list means "no suggestions" (omit the bullets — do not invent guidance).
+Extract the advice from `GATE1_OUTPUT` with step 17a's heuristic (defined there, once) — up to **3** of the most concrete items. Store them as `GATE1_KEY_SUGGESTIONS`, an ordered list of 0–3 plain-text strings in **English only** (translate if the reviewer answered in another language); step 17a reuses the stored list, and an empty list means "no suggestions" (omit the bullets — do not invent guidance).
 
 When `lang != "en"`, localize only the rendered text — the Considerations block, the question, the option labels, and the displayed suggestions — never the stored `GATE1_KEY_SUGGESTIONS`.
 
@@ -618,7 +618,7 @@ This sub-step also runs when `DRY_RUN` is `true` — the operator still sees the
   - **Otherwise**: print the gate1 summary and ask the user via the AskUserQuestion tool: "Gate1 returned yellow. Continue with branch creation?" with options "Yes, continue" / "No, abort". On abort, exit cleanly with state `phase=started, gate1.verdict=yellow` (no branch created).
 - **red** →
   - **`FORCE` is true** (e.g. `/objective` under `unattended`/`force` passes `force` alongside `--autonomous`) → log a loud warning and continue to step 12a/13. The red verdict is carried into the state file by the normal step-14 write.
-  - **`AUTONOMOUS` is true AND `FORCE` is false** (`red-only`; `attended` takes the interactive path below) → **persist-and-return instead of aborting**: unless `DRY_RUN`, write a partial state file at the normal path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`, atomic temp+mv as in step 14) with `phase=started`, `gate1.verdict=red`, the full `gate1` block (reviewer/escalated_to/summary_path/ran_at), `worktree_path=null` and **no branch created** (the branch name is recorded; `git checkout -b` is not run), and save the gate1 markdown (step 15). Under `DRY_RUN` write neither file — just print the findings. In both cases print the reviewer's findings and **return control cleanly (exit 0)**. `/objective` step 5d depends on this: it reads `gate1.verdict=red` from the state file and runs its own red HITL. Log `autonomous(<level>): gate1 red — verdict persisted, returning control (no branch created)` (or `… returning control (dry-run, no state written)` under `DRY_RUN`).
+  - **`AUTONOMOUS` is true AND `FORCE` is false** (`red-only`, or `unattended` without `force`; `attended` takes the interactive path below) → **persist-and-return instead of aborting**: unless `DRY_RUN`, write a partial state file at the normal path (`~/.claude/cache/gh-issue-driven/<branch-flat>.json`, atomic temp+mv as in step 14) with `phase=started`, `gate1.verdict=red`, the full `gate1` block (reviewer/escalated_to/summary_path/ran_at), `worktree_path=null` and **no branch created** (the branch name is recorded; `git checkout -b` is not run), and save the gate1 markdown (step 15). Under `DRY_RUN` write neither file — just print the findings. In both cases print the reviewer's findings and **return control cleanly (exit 0)**. `/objective` step 5d depends on this: it reads `gate1.verdict=red` from the state file and runs its own red HITL. Log `autonomous(<level>): gate1 red — verdict persisted, returning control (no branch created)` (or `… returning control (dry-run, no state written)` under `DRY_RUN`).
   - **Otherwise** (interactive, not autonomous, not force) → abort with the reviewer's findings printed in full. Suggest "rerun with `force` flag once you have addressed the concerns". No state file is written (unchanged legacy behavior).
 
 ### 12a. Generate the implementation plan (optional, `--with-plan`)
