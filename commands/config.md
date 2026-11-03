@@ -175,6 +175,15 @@ The autonomy level governs **verdict** gating only. The milestone-missing precon
 - **PR review (the expensive async Copilot loop)** — optional via the inherited `review.provider`: set it to `"none"` (no automated PR review) or `"code-review"` (single-shot, no polling loop) for a persistent, cheaper default; or pass the per-run `no-copilot` flag to `/gh-issue-driven:objective`, which forwards to `/ship` as `no-copilot` for that run only. With Copilot off, each issue's PR is opened and left for manual review (recorded `needs_human`).
 - **Inner review (the cheap pre-PR pass)** — `goal.inner_review.model` (default `"auto"`) right-sizes by diff scope; the `review-model=<tier>` flag re-tiers it per run, and `goal.inner_review.enabled=false` removes it entirely (falling back to `/code-review`). Implementation always runs on the normal session model — only the review subagent is downshifted.
 
+### `followups.*`
+
+How `/ship` (step 9a / 12b, the canonical routing), `/review` (step 6a), and `/objective` handle a review observation — gate2, `/code-review`, Copilot, or the implementer's own notes — that the PR does not fix. Each one lands in one bucket: **fix now** (a regression this change introduced, or a small pre-existing bug in the touched files — fixed before the PR ships), **bug** (a pre-existing bug with a concrete failure scenario that is not small or not nearby — a GitHub issue with a milestone), or **memo** (refactors, duplicated helpers, nits, docs sweeps, dead code, hardening ideas → a Kagura Memory `tech-debt` memory; an owner-only question → `needs-decision`). Nothing becomes a `backlog` issue or an issue without a milestone.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `memos_to_memory` | `true` | Write memos to Kagura Memory (the `memory.context_id` context) and look up open memos touching the changed files at `/ship` time. `false` — or no Kagura Memory connection — lists the memos in the PR body under "Memos (not filed)" and skips the lookup. Memos never become issues either way. |
+| `bug_milestone` | `"next"` | Milestone for bug issues: `"next"` = the open milestone after the issue's own, `"current"` = the issue's own. When it cannot be determined, the user is asked; an `--autonomous` run lists the bug in the PR body as not filed instead of guessing. |
+
 ### `memory.context_id`
 
 Accepts three forms — in priority order of recommendation:
@@ -270,6 +279,10 @@ Users without kagura-memory installed can ignore this field — recall is skippe
   "review": {
     "provider": "none",
     "model": "auto"
+  },
+  "followups": {
+    "memos_to_memory": true,
+    "bug_milestone": "next"
   },
   "copilot": {
     "enabled": true,

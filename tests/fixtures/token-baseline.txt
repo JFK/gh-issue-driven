@@ -1,13 +1,13 @@
 # token-baseline snapshot — commands/*.md size census (issue #87)
 # ~tokens is APPROXIMATE (bytes/4); byte counts assume LF (CR stripped, see .gitattributes)
 # columns: file<TAB>lines<TAB>bytes<TAB>~tokens   (regenerate: bash tests/token-baseline.sh --update)
-config.md	381	31242	7810
+config.md	394	32738	8184
 doctor.md	471	27637	6909
-objective.md	246	32437	8109
-propose.md	552	24730	6182
-review.md	543	33742	8435
-ship.md	663	48888	12222
-start.md	1105	85036	21259
+objective.md	252	33689	8422
+propose.md	562	26720	6680
+review.md	550	35223	8805
+ship.md	732	59142	14785
+start.md	1115	86666	21666
 status.md	192	11918	2979
 tag.md	442	19927	4981
-TOTAL	4595	315557	78886
+TOTAL	4710	333660	83411

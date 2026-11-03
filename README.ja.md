@@ -144,6 +144,10 @@ issue 取得と recall の **後**、ブランチ作成の **前** に走りま�
 
 デフォルトは `null` (binary gate なし)。以前のバージョンは `/claude-c-suite:audit` がデフォルトだったが、これは `claude-c-suite-plugin` 自身の規約遵守チェッカーであり、他のプラグイン (gh-issue-driven 含む) では script が存在せずエラーで終わる → 全 `/ship` invocation を block していた。v0.1.1 (#26) で修正。
 
+#### レビュー指摘の振り分け — その場で直す / バグ / メモ
+
+レビュー (gate2、`/code-review`、Copilot、実装者自身のメモ) で挙がったもののうち PR で直さないものは、3 つのどれかに振り分ける。`backlog` issue にはしない。**その場で直す**: この変更が持ち込んだ回帰、または触ったファイル内の小さな既存バグ。直すまで `/ship` は進まない。**バグ**: 具体的な失敗シナリオがある既存バグで、小さくない・近くにないもの。次のマイルストーン付きの issue になる (`followups.bug_milestone`)。**メモ**: リファクタ、細かい指摘、ドキュメント整理、デッドコード、堅牢化のアイデア (およびオーナーにしか決められない問い) は、関係するファイルのタグ付きで Kagura Memory に `tech-debt` / `needs-decision` として保存する。Kagura Memory に接続できないときは PR 本文に列挙する。`/start` は issue の領域の未解決メモを recall し、`/ship` は変更ファイルのタグが付いた未解決メモを引いて、この PR で解消したものを尋ね、`status:done` にする。`/propose` は一致するメモがあれば、重複 issue を作らずそのメモを issue に昇格させる。
+
 ### Phase 3 — `/gh-issue-driven:tag`(リリース儀式)
 
 PR が default branch にマージされ、milestone の準備が整った後に実行します。儀式は「**すべてのチェックをファイル変更の前に寄せる**」構造になっているため、どこかで失敗しても作業ツリーはクリーンなままです:
@@ -371,6 +375,8 @@ skill が見つからない場合の degrade：
 | `gate2.advisors` | `[cso, qa-lead, cto]` | 並列実行・集約 |
 | `review.provider` | `none` | 事後レビューのプロバイダ — `none`（opt-in: `/ship` は PR を作って停止）、`copilot`、`code-review`、`both`。設定時は `/ship` がループを `/gh-issue-driven:review` へ委譲 |
 | `review.model` | `auto` | **レビュー修正を適用する**モデルを right-size（`auto`\|`haiku`\|`sonnet`\|`opus`）。`auto` はフィードバックの規模からティアを選択 |
+| `followups.memos_to_memory` | `true` | レビューのメモを Kagura Memory に保存し、`/ship` で変更ファイルの未解決メモを引く。`false` なら PR 本文に列挙する |
+| `followups.bug_milestone` | `next` | レビュー指摘から起票するバグ issue のマイルストーン — `next` または `current` |
 | `copilot.enabled` | _(deprecated)_ | もはや参照されません — 代わりに `review.provider` を使用 |
 | `copilot.max_loops` | `5` | 最大ループ数 |
 | `copilot.poll_interval_sec` | `60` | poll 間隔 |
